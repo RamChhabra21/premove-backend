@@ -1,0 +1,1 @@
+BROWSER_USE_PREVIEW_MODEL = "browser-use/bu-30b-a3b-preview"

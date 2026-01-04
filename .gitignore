@@ -1,0 +1,33 @@
+# Python cache / temp
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env
+
+# Logs
+*.log
+logs/
+*.sqlite3
+
+# Playwright artifacts
+playwright-report/
+*.zip
+
+# Celery / task queues
+celerybeat-schedule
+*.pid
+
+# Temporary files / OS
+*.swp
+.DS_Store
+*.tmp
+tmp/
+temp/
+
+# IDEs
+.vscode/
+.idea/

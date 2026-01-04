@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+python-dotenv
+celery
+redis
+psycopg2-binary
+uuid6
+pydantic-settings
+browser-use[all]
+playwright
