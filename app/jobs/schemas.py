@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from uuid import UUID
-from app.jobs.models import WorkflowTypeEnum
+from app.models.jobs import WorkflowTypeEnum
 
 class JobCreate(BaseModel):  
     workflow_id: UUID     

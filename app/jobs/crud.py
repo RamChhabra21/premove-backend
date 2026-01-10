@@ -1,8 +1,7 @@
-from app.jobs.models import Job
+from app.models.jobs import Job
 from app.jobs.schemas import JobCreate, JobResponse
 from uuid6 import uuid7
 from sqlalchemy.orm import Session
-from app.redis_client import redis_connection
 from uuid import UUID
 from app.tasks.tasks import process_job
 
@@ -20,10 +19,6 @@ def create_job(db: Session, job_dto: JobCreate) -> str:
     db.commit()         
     db.refresh(new_job) 
 
-    print(new_job.id)
-
-    # push to the queue using celery here 
-    process_job.delay(new_job.id)
     return str(new_job.id)
 
 def get_job(db: Session, job_id: UUID):

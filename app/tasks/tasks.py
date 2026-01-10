@@ -4,10 +4,8 @@ import asyncio
 import json
 from app.celery_app import celery_app
 from app.core.database import SessionLocal
-from app.jobs.models import Job
-from app.web.executor import run_browser_task
-from app.web.replay.extract import convert_history_to_playwright_format
-from app.web.replay.playwright_engine import execute_model_actions
+from app.models.jobs import Job
+from app.web.service import WebService
 
 @celery_app.task
 def process_job(job_id : str):
@@ -28,24 +26,11 @@ def process_job(job_id : str):
 
         # here is the entry point for whole application (job processing based off job types)  
 
-        if(job.workflow_type == "WEB_QUERY"): 
-            goal = job.goal
-            history = asyncio.run(run_browser_task("go to google.com and get title", "", constants.BROWSER_USE_PREVIEW_MODEL, False))
-            history_str = json.dumps(history, indent=2)
-            print(history_str[:500])
-            extracted_actions = convert_history_to_playwright_format(
-                                history_data=history, 
-                                save_to_file=False,      # do not save to a file
-                                verbose=True             # optional, prints debug info
-                            )
-            print(extracted_actions)
-            results = asyncio.run(execute_model_actions(
-                        actions=extracted_actions,
-                        headless=False,      # or False if you want to see the browser
-                        verbose=True,       # logs all actions
-                        keep_browser_open=False  # True to keep browser open after completion
-                    ))
-            print(results)
+        if(job.workflow_type == "WEB"): 
+            # call web service here to do the actions
+            webService = WebService()
+            no_replay=True
+            webService.run_web_automation(job,no_replay)
         # update job status after job completion
         job.status = "COMPLETED"
         db.commit()
@@ -53,4 +38,3 @@ def process_job(job_id : str):
         print(" exeception occured : ",e)
     finally:
         db.close()
-    # print(" job processing started ", job_id)

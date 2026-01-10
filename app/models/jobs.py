@@ -1,16 +1,13 @@
 from sqlalchemy import Column, String, DateTime, Enum, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
 import enum
 from uuid6 import uuid7
-
-Base = declarative_base()
+from app.core.database import Base
 
 # Enums
 class WorkflowTypeEnum(str, enum.Enum):
-    WEB_QUERY = "WEB_QUERY"
-    WEB_ACTION = "WEB_ACTION"
+    WEB = "WEB"
     REASON = "REASON"
 
 class JobStatusEnum(str, enum.Enum):
