@@ -2,9 +2,7 @@ from app.core.database import SessionLocal
 from app.web.executor import WebExecutor
 from app.models.jobs import Job
 from app.web.replay.extract import convert_history_to_playwright_format
-from app.web.replay.playwright_engine import execute_model_actions
 import app.utils.constants as constants
-import asyncio
 from app.web.crud import get_by_workflow_and_node, create_web_automation
 from app.web.schemas import WebAutomationCreate
 from app.llm.client import get_llm_client
@@ -37,7 +35,9 @@ class WebService():
                                 actions={},  # empty initially
                             )
                         )
-        if forceNewRun or (not extracted_actions) or len(extracted_actions) == 0:
+            print("this is the job goal : ",job.goal)
+            print("this is the web automation goal : ",web_automation.goal)
+        if forceNewRun or (not extracted_actions) or len(extracted_actions) == 0 or job.goal != web_automation.goal:
             # do new agentic task 
             new_history, final_result, is_task_done, is_task_successful, errors = await self.webexecutor.run_browser_task(job.goal, "", constants.BROWSER_USE_PREVIEW_MODEL, False)
             if not is_task_done or not is_task_successful:
@@ -52,6 +52,8 @@ class WebService():
                     save_to_file=False,      # do not save to a file
                     verbose=True             # optional, prints debug info
                 )
+            # save the updated goal in case it changed
+            web_automation.goal = job.goal 
             # save this extracted_actions to db
             web_automation.actions = extracted_actions
             self.db.commit()
@@ -61,12 +63,7 @@ class WebService():
             }
         else:
             print("Reusing existing extracted actions for web automation.")
-            results = await execute_model_actions(
-                        actions=extracted_actions,
-                        headless=False,      # or False if you want to see the browser
-                        verbose=True,       # logs all actions
-                        keep_browser_open=False  # True to keep browser open after completion
-                    )
+            results = await self.webexecutor.replay_browser_task(extracted_actions)
             # an llm call with job goal and results to summarize final result 
             messages = [
                 Message(role=Role.SYSTEM, content="""

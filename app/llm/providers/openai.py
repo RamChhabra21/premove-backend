@@ -1,25 +1,26 @@
-from openai import AsyncOpenAI
-from app.llm.types import LLMRequest, LLMResponse
-from app.llm.providers.base import BaseLLMProvider
-from dotenv import load_dotenv
-import os
-load_dotenv() 
+# llm/providers/openai.py
+from openai import AsyncOpenAI   
+
+from llm.providers.base import BaseLLMProvider
+from llm.types import LLMRequest, LLMResponse
 
 class OpenAIProvider(BaseLLMProvider):
     name = "openai"
 
-    async def complete(self, request: LLMRequest) -> LLMResponse:
-        client = AsyncOpenAI()
+    def __init__(self):
+        self.client = AsyncOpenAI()
 
-        response = await client.chat.completions.create(
-            model=request.model or "gpt-4o",
-            messages=[{"role": m.role.value, "content": m.content} for m in request.messages],
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        resp = await self.client.chat.completions.create(
+            model=request.model,
+            messages=[m.model_dump() for m in request.messages],
             temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            timeout=request.timeout_s,
         )
 
         return LLMResponse(
-            content=response.choices[0].message.content,
+            content=resp.choices[0].message.content,
+            model=resp.model,
             provider=self.name,
-            model=response.model,
-            raw=response,
         )

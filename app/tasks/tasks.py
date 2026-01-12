@@ -32,9 +32,12 @@ def process_job(job_id : str):
             web_automation_result = asyncio.run(webService.run_web_automation(job, forceNewRun=False))
             status = web_automation_result["status"]
             final_web_result = web_automation_result["result"]
-            # save final result to jobs table 
-            job.result = final_web_result
             job.status = status
+            if job.status == "COMPLETED":
+                # save final result to jobs table 
+                job.result = final_web_result
+            elif job.status == "FAILED":
+                job.error_message = final_web_result
             db.commit()
     except Exception as e:
         print(" exeception occured : ",e)

@@ -1,8 +1,8 @@
 # web/executor.py
 from browser_use import Agent, Browser, ChatBrowserUse
-import asyncio
 import json
 import logging
+from app.web.replay.playwright_engine import execute_model_actions
 
 class WebExecutor():
     def __init__(self):
@@ -48,5 +48,10 @@ class WebExecutor():
             self.logger.exception(f"Browser workflow failed with error : {e}")
             raise
     
-    async def replay_browser_task(extracted_actions: str):
-        pass
+    async def replay_browser_task(self, extracted_actions: str):
+        return await execute_model_actions(
+                        actions=extracted_actions,
+                        headless=False,      # or False if you want to see the browser
+                        verbose=True,       # logs all actions
+                        keep_browser_open=False  # True to keep browser open after completion
+                    )
