@@ -8,6 +8,7 @@ import asyncio
 from app.web.crud import get_by_workflow_and_node, create_web_automation
 from app.web.schemas import WebAutomationCreate
 from app.llm.client import get_llm_client
+from app.llm.types import Message, Role
 
 class WebService():
     def __init__(self):
@@ -15,7 +16,7 @@ class WebService():
         self.webexecutor = WebExecutor() 
         self.llm = get_llm_client()
 
-    def run_web_automation(self, job : Job, forceNewRun: bool = False):
+    async def run_web_automation(self, job : Job, forceNewRun: bool = False):
         extracted_actions = None
         # check if web automation exists for this job
         web_automation = get_by_workflow_and_node(
@@ -38,7 +39,7 @@ class WebService():
                         )
         if forceNewRun or (not extracted_actions) or len(extracted_actions) == 0:
             # do new agentic task 
-            new_history, final_result, is_task_done, is_task_successful, errors = asyncio.run(self.webexecutor.run_browser_task(job.goal, "", constants.BROWSER_USE_PREVIEW_MODEL, False))
+            new_history, final_result, is_task_done, is_task_successful, errors = await self.webexecutor.run_browser_task(job.goal, "", constants.BROWSER_USE_PREVIEW_MODEL, False)
             if not is_task_done or not is_task_successful:
                 print("Web automation task failed or incomplete. Errors:", errors)
                 return {
@@ -59,12 +60,31 @@ class WebService():
                 "result": final_result
             }
         else:
-            results = asyncio.run(execute_model_actions(
+            print("Reusing existing extracted actions for web automation.")
+            results = await execute_model_actions(
                         actions=extracted_actions,
                         headless=False,      # or False if you want to see the browser
                         verbose=True,       # logs all actions
                         keep_browser_open=False  # True to keep browser open after completion
-                    ))
+                    )
             # an llm call with job goal and results to summarize final result 
-            final_result = self.llm.summarize_results(job.goal, results)
-            return results
+            messages = [
+                Message(role=Role.SYSTEM, content="""
+                        You are an expert which extracts summarised web automation results into compressed data without losing information." \
+                        IMPORTANT :  The final result should be concise and to the point but contains all information in a compressed state, avoiding any unnecessary elaboration or errors, max limit 100 words.
+                        Do not mention extraction status or any metadata in the final result.
+                        """),
+                Message(role=Role.USER, content=f"Intended Job : {job.goal}"),
+                Message(role=Role.USER, content=f"Retrieved information :\n{results}"),
+            ]
+            print("Calling LLM to summarise final result...", results)
+            retrieved_result = await self.llm.complete(
+                messages,
+                provider="openai",
+                temperature=0.1,
+            )
+            print("Final summarized result:", retrieved_result)
+            return {
+                "status": "COMPLETED",
+                "result": retrieved_result
+            }

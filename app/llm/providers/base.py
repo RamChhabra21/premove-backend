@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from llm.types import LLMRequest, LLMResponse
+from app.llm.types import LLMRequest, LLMResponse
 
 class BaseLLMProvider(ABC):
     name: str

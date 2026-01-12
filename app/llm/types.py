@@ -1,20 +1,30 @@
-from typing import Literal, Optional
+from enum import Enum
 from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
 
-Role = Literal["system", "user", "assistant"]
+
+class Role(str, Enum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
 
 class Message(BaseModel):
     role: Role
     content: str
 
+
 class LLMRequest(BaseModel):
-    messages: list[Message]
-    model: str = "gpt-4o-mini"
-    temperature: float = 0.0
+    messages: List[Message]
+    model: Optional[str] = None
+    temperature: float = 0.2
     max_tokens: Optional[int] = None
-    timeout_s: float = 30.0
+    provider: Optional[str] = None  
+    metadata: Dict[str, Any] = {}
+
 
 class LLMResponse(BaseModel):
     content: str
-    model: str
-    provider: str
+    raw: Optional[Any] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None

@@ -29,12 +29,13 @@ def process_job(job_id : str):
         if(job.workflow_type == "WEB"): 
             # call web service here to do the actions
             webService = WebService()
-            final_web_result = webService.run_web_automation(job, forceNewRun=False)
+            web_automation_result = asyncio.run(webService.run_web_automation(job, forceNewRun=False))
+            status = web_automation_result["status"]
+            final_web_result = web_automation_result["result"]
             # save final result to jobs table 
             job.result = final_web_result
-        # update job status after job completion
-        job.status = "COMPLETED"
-        db.commit()
+            job.status = status
+            db.commit()
     except Exception as e:
         print(" exeception occured : ",e)
     finally:
