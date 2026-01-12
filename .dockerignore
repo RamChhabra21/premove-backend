@@ -1,0 +1,23 @@
+# Local virtualenv (THIS IS THE BIG ONE)
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Git
+.git
+.gitignore
+
+# OS junk
+.DS_Store
+
+# Env files
+.env
+.env.*
+
+# Logs / DBs
+*.log
+*.sqlite
+*.db

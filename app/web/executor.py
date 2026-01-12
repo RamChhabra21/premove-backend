@@ -28,14 +28,21 @@ class WebExecutor():
                 """,
                 llm=llm,
                 browser=browser
-                # save_conversation_path="amul_protein_history.json"  # ✅ ADDED: Auto-save!
             )
 
             history = await agent.run()
 
+            final_result = history.final_result()
+
+            is_task_done = history.is_done()
+
+            is_task_successful = history.is_successful()
+
+            errors = history.errors()
+
             history_dict = json.loads(json.dumps(history.__dict__, default=str))
 
-            return history_dict
+            return history_dict, final_result, is_task_done, is_task_successful, errors
 
         except Exception as e:
             self.logger.exception(f"Browser workflow failed with error : {e}")

@@ -9,6 +9,7 @@ router = APIRouter()
 
 @router.post("/job")
 def create_job_api(job: JobCreate, db=Depends(get_db)):
+    print("Received job creation request:", job)
     job_id = create_job(db,job)
     # push to the queue using celery here 
     process_job.delay(job_id)

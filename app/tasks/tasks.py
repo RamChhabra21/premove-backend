@@ -29,8 +29,9 @@ def process_job(job_id : str):
         if(job.workflow_type == "WEB"): 
             # call web service here to do the actions
             webService = WebService()
-            no_replay=True
-            webService.run_web_automation(job,no_replay)
+            final_web_result = webService.run_web_automation(job, forceNewRun=False)
+            # save final result to jobs table 
+            job.result = final_web_result
         # update job status after job completion
         job.status = "COMPLETED"
         db.commit()
