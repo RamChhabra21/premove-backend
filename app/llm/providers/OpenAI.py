@@ -15,8 +15,7 @@ class OpenAIProvider(BaseLLMProvider):
             model=request.model,
             messages=[m.model_dump() for m in request.messages],
             temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            timeout=request.timeout_s,
+            max_tokens=request.max_tokens
         )
 
         return LLMResponse(

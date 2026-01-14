@@ -1,5 +1,5 @@
 # web/executor.py
-from browser_use import Agent, Browser, ChatBrowserUse
+from browser_use import Agent, Browser, ChatBrowserUse, BrowserProfile
 import json
 import logging
 from app.web.replay.playwright_engine import execute_model_actions
@@ -10,7 +10,13 @@ class WebExecutor():
         pass
     
     async def run_browser_task(self, instructions: str, rules: str, model: str, isCloud: bool):
-        browser = Browser(use_cloud=isCloud)
+        browser = Browser(
+            use_cloud=isCloud,
+            browser_profile=BrowserProfile(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
+        )
         try:
             llm = ChatBrowserUse(model=model)
 
@@ -51,7 +57,7 @@ class WebExecutor():
     async def replay_browser_task(self, extracted_actions: str):
         return await execute_model_actions(
                         actions=extracted_actions,
-                        headless=False,      # or False if you want to see the browser
+                        headless=True,      # or False if you want to see the browser
                         verbose=True,       # logs all actions
                         keep_browser_open=False  # True to keep browser open after completion
                     )
