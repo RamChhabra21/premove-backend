@@ -1,6 +1,7 @@
 from app.llm.providers.open_ai import OpenAIProvider
 from app.llm.providers.anthropic import AnthropicProvider
 from app.llm.providers.perplexity import PerplexityProvider
+from app.llm.providers.groq import GroqProvider
 from app.llm.types import LLMRequest, LLMResponse
 
 class LLMGateway:
@@ -9,9 +10,10 @@ class LLMGateway:
             "openai": OpenAIProvider,
             "anthropic": AnthropicProvider,
             "perplexity": PerplexityProvider,
+            "groq": GroqProvider
         }
         self._instances = {}
-        self.default_provider = "perplexity"
+        self.default_provider = "groq"
 
     def _get_provider(self, name: str):
         if name not in self._instances:

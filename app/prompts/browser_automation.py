@@ -26,7 +26,7 @@ Add details about:
 - Specific data fields to extract
 - Constraints or success criteria
 
-STRICT LIMIT: Max 100 words. Do NOT list browser actions.
+STRICT LIMIT: Max 70 words. Do NOT list browser actions.
 """
 
 # Result summarization prompt
@@ -36,5 +36,6 @@ Summarize this web automation result:
 GOAL: {job_goal}
 DATA: {raw_results}
 
+IMPORTANT: Do not return anything except compressed results preserving key details
 STRICT LIMIT: Max 50 words. Extract only relevant info. No metadata.
 """

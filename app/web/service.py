@@ -138,7 +138,7 @@ class WebService():
                     try:
                         retrieved_result = await self.llm.complete(
                             messages,
-                            provider="perplexity",
+                            provider="groq",
                             temperature=0.1,
                         )
                         self.logger.info(f"Final summarized result: {retrieved_result}")
