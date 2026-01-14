@@ -1,4 +1,4 @@
-from app.llm.providers.openai import OpenAIProvider
+from app.llm.providers.open_ai import OpenAIProvider
 from app.llm.providers.anthropic import AnthropicProvider
 from app.llm.types import LLMRequest, LLMResponse
 
