@@ -35,7 +35,7 @@ class WebPlanner:
         try:
             instructions = await self.llm.complete(
                 messages,
-                provider="openai",
+                provider="perplexity",
                 temperature=0.2,
             )
             self.logger.info(f"Generated instructions: {instructions[:200]}...")

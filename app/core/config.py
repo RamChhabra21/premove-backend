@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     # LLM API Keys
     OPENAI_API_KEY: str = Field(default="", description="OpenAI API key")
     ANTHROPIC_API_KEY: str = Field(default="", description="Anthropic API key")
+    PERPLEXITY_API_KEY: str = Field(default="", description="Perplexity API key")
+    PERPLEXITY_BASE_URL: str = Field(default="https://api.perplexity.ai", description="Perplexity API base URL")
     
     # Browser Automation
     BROWSER_USE_MODEL: str = Field(default="gpt-4o", description="Default model for browser automation")
