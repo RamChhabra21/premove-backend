@@ -1,5 +1,6 @@
 from app.core.database import SessionLocal
 from app.web.executor import WebExecutor
+from app.web.planner import WebPlanner
 from app.models.jobs import Job
 from app.web.replay.extract import convert_history_to_playwright_format
 import app.utils.constants as constants
@@ -9,11 +10,20 @@ from app.llm.client import get_llm_client
 from app.llm.types import Message, Role
 from app.core.exceptions import BrowserTaskFailedException, LLMAPIException
 from app.core.logging_config import logger
+from app.prompts import RESULT_SUMMARIZATION_PROMPT
 import logging
 
 class WebService():
+    """
+    Web automation service.
+    
+    Orchestrates browser automation tasks including planning, execution,
+    caching, and result summarization.
+    """
+    
     def __init__(self):
         self.webexecutor = WebExecutor() 
+        self.planner = WebPlanner()
         self.llm = get_llm_client()
         self.logger = logging.getLogger("premove.web_service")
 
@@ -60,9 +70,15 @@ class WebService():
                 self.logger.info(f"Running new agentic browser task for goal: {job.goal}")
                 
                 try:
-                    # Do new agentic task
+                    # Use planner to convert goal into structured instructions
+                    self.logger.info("Using planner to generate structured instructions")
+                    planned_instructions = await self.planner.plan_browser_task(
+                        user_goal=job.goal
+                    )
+                    
+                    # Do new agentic task with planned instructions
                     new_history, final_result, is_task_done, is_task_successful, errors = await self.webexecutor.run_browser_task(
-                        job.goal, 
+                        planned_instructions,  # Use planned instructions instead of raw goal
                         "", 
                         constants.BROWSER_USE_PREVIEW_MODEL, 
                         False
@@ -105,16 +121,18 @@ class WebService():
                 try:
                     results = await self.webexecutor.replay_browser_task(extracted_actions)
                     
-                    # Use LLM to summarize the results
+                    # Use LLM to summarize the results with prompt template
                     self.logger.info("Calling LLM to summarize results")
+                    
+                    # Use prompt template for summarization
+                    summarization_prompt = RESULT_SUMMARIZATION_PROMPT.format(
+                        job_goal=job.goal,
+                        raw_results=results
+                    )
+                    
                     messages = [
-                        Message(role=Role.SYSTEM, content="""
-                            You are an expert which extracts summarised web automation results into compressed data without losing information.
-                            IMPORTANT: The final result should be concise and to the point but contains all information in a compressed state, avoiding any unnecessary elaboration or errors, max limit 100 words.
-                            Do not mention extraction status or any metadata in the final result.
-                            """),
-                        Message(role=Role.USER, content=f"Intended Job: {job.goal}"),
-                        Message(role=Role.USER, content=f"Retrieved information:\n{results}"),
+                        Message(role=Role.SYSTEM, content="You are an expert at extracting and summarizing web automation results."),
+                        Message(role=Role.USER, content=summarization_prompt),
                     ]
                     
                     try:

@@ -3,13 +3,25 @@ from browser_use import Agent, Browser, ChatBrowserUse, BrowserProfile
 import json
 import logging
 from app.web.replay.playwright_engine import execute_model_actions
+from app.prompts import BROWSER_TASK_PROMPT
 
 class WebExecutor():
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        pass
     
     async def run_browser_task(self, instructions: str, rules: str, model: str, isCloud: bool):
+        """
+        Execute a browser automation task.
+        
+        Args:
+            instructions: Structured instructions for the browser agent
+            rules: Additional rules/constraints for the task
+            model: LLM model to use
+            isCloud: Whether to use cloud browser
+        
+        Returns:
+            Tuple of (history_dict, final_result, is_task_done, is_task_successful, errors)
+        """
         browser = Browser(
             use_cloud=isCloud,
             browser_profile=BrowserProfile(
@@ -20,18 +32,14 @@ class WebExecutor():
         try:
             llm = ChatBrowserUse(model=model)
 
-            agent = Agent(
-                task=f""" 
-                    INSTRUCTIONS:
-                    {instructions}
+            # Use prompt template from prompts folder
+            task_prompt = BROWSER_TASK_PROMPT.format(
+                instructions=instructions,
+                additional_rules=rules if rules else ""
+            )
 
-                    RULES:
-                    - Only perform actions on the intended website(s)
-                    - Do not login/sign up unless explicitly allowed
-                    - Do not navigate outside target domain
-                    {rules}
-                    - Extract only relevant visible information
-                """,
+            agent = Agent(
+                task=task_prompt,
                 llm=llm,
                 browser=browser
             )
@@ -39,11 +47,8 @@ class WebExecutor():
             history = await agent.run()
 
             final_result = history.final_result()
-
             is_task_done = history.is_done()
-
             is_task_successful = history.is_successful()
-
             errors = history.errors()
 
             history_dict = json.loads(json.dumps(history.__dict__, default=str))
@@ -51,13 +56,28 @@ class WebExecutor():
             return history_dict, final_result, is_task_done, is_task_successful, errors
 
         except Exception as e:
-            self.logger.exception(f"Browser workflow failed with error : {e}")
+            self.logger.exception(f"Browser workflow failed with error: {e}")
             raise
+        finally:
+            # Ensure browser is closed
+            try:
+                await browser.close()
+            except:
+                pass
     
     async def replay_browser_task(self, extracted_actions: str):
+        """
+        Replay previously recorded browser actions.
+        
+        Args:
+            extracted_actions: Previously extracted actions to replay
+        
+        Returns:
+            Results from the replayed actions
+        """
         return await execute_model_actions(
-                        actions=extracted_actions,
-                        headless=True,      # or False if you want to see the browser
-                        verbose=True,       # logs all actions
-                        keep_browser_open=False  # True to keep browser open after completion
-                    )
+            actions=extracted_actions,
+            headless=True,
+            verbose=True,
+            keep_browser_open=False
+        )
