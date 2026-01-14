@@ -9,7 +9,7 @@ from app.web.crud import create_web_automation, get_web_automation
 router = APIRouter(prefix="/web_automations", tags=["Web Automations"])
 
 @router.post("/", response_model=WebAutomationResponse)
-def create_web_automation(payload: WebAutomationCreate, db: Session = Depends(get_db)):
+def create_web_automation_endpoint(payload: WebAutomationCreate, db: Session = Depends(get_db)):
     # Optional uniqueness check for workflow_id + node_id
     existing = db.query(WebAutomation).filter_by(
         workflow_id=payload.workflow_id,
@@ -22,7 +22,7 @@ def create_web_automation(payload: WebAutomationCreate, db: Session = Depends(ge
     return obj
 
 @router.get("/{automation_id}", response_model=WebAutomationResponse)
-def get_web_automation(automation_id: UUID, db: Session = Depends(get_db)):
+def get_web_automation_endpoint(automation_id: UUID, db: Session = Depends(get_db)):
     obj = get_web_automation(db, str(automation_id))
     if not obj:
         raise HTTPException(status_code=404, detail="Web Automation not found")

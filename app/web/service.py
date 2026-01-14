@@ -7,81 +7,141 @@ from app.web.crud import get_by_workflow_and_node, create_web_automation
 from app.web.schemas import WebAutomationCreate
 from app.llm.client import get_llm_client
 from app.llm.types import Message, Role
+from app.core.exceptions import BrowserTaskFailedException, LLMAPIException
+from app.core.logging_config import logger
+import logging
 
 class WebService():
     def __init__(self):
-        self.db = SessionLocal()
         self.webexecutor = WebExecutor() 
         self.llm = get_llm_client()
+        self.logger = logging.getLogger("premove.web_service")
 
-    async def run_web_automation(self, job : Job, forceNewRun: bool = False):
-        extracted_actions = None
-        # check if web automation exists for this job
-        web_automation = get_by_workflow_and_node(
-            self.db,
-            workflow_id=job.workflow_id,
-            node_id=job.node_id,
-        )
-        if web_automation:
-            extracted_actions = web_automation.actions
-        else:
-            # create new web automation entry
-            web_automation = create_web_automation(
-                            self.db,
-                            WebAutomationCreate(
-                                workflow_id=job.workflow_id,
-                                node_id=job.node_id,
-                                goal=job.goal,
-                                actions={},  # empty initially
-                            )
-                        )
-            print("this is the job goal : ",job.goal)
-            print("this is the web automation goal : ",web_automation.goal)
-        if forceNewRun or (not extracted_actions) or len(extracted_actions) == 0 or job.goal != web_automation.goal:
-            # do new agentic task 
-            new_history, final_result, is_task_done, is_task_successful, errors = await self.webexecutor.run_browser_task(job.goal, "", constants.BROWSER_USE_PREVIEW_MODEL, False)
-            if not is_task_done or not is_task_successful:
-                print("Web automation task failed or incomplete. Errors:", errors)
-                return {
-                    "status": "FAILED",
-                    "errors": errors
-                }
-            # extract actions to perform based on web automation
-            extracted_actions = convert_history_to_playwright_format(
-                    history_data=new_history, 
-                    save_to_file=False,      # do not save to a file
-                    verbose=True             # optional, prints debug info
-                )
-            # save the updated goal in case it changed
-            web_automation.goal = job.goal 
-            # save this extracted_actions to db
-            web_automation.actions = extracted_actions
-            self.db.commit()
-            return {
-                "status": "COMPLETED",
-                "result": final_result
-            }
-        else:
-            print("Reusing existing extracted actions for web automation.")
-            results = await self.webexecutor.replay_browser_task(extracted_actions)
-            # an llm call with job goal and results to summarize final result 
-            messages = [
-                Message(role=Role.SYSTEM, content="""
-                        You are an expert which extracts summarised web automation results into compressed data without losing information." \
-                        IMPORTANT :  The final result should be concise and to the point but contains all information in a compressed state, avoiding any unnecessary elaboration or errors, max limit 100 words.
-                        Do not mention extraction status or any metadata in the final result.
-                        """),
-                Message(role=Role.USER, content=f"Intended Job : {job.goal}"),
-                Message(role=Role.USER, content=f"Retrieved information :\n{results}"),
-            ]
-            print("Calling LLM to summarise final result...", results)
-            retrieved_result = await self.llm.complete(
-                messages,
-                provider="openai",
-                temperature=0.1,
+    async def run_web_automation(self, job: Job, forceNewRun: bool = False):
+        """
+        Run web automation for a job.
+        
+        Args:
+            job: Job instance to process
+            forceNewRun: Force a new agentic run even if cached actions exist
+            
+        Returns:
+            dict with status and result/error
+        """
+        db = SessionLocal()
+        try:
+            extracted_actions = None
+            
+            # Check if web automation exists for this job
+            web_automation = get_by_workflow_and_node(
+                db,
+                workflow_id=job.workflow_id,
+                node_id=job.node_id,
             )
-            print("Final summarized result:", retrieved_result)
-            return {
-                "status": "COMPLETED",
-                "result": retrieved_result
-            }
+            
+            if web_automation:
+                extracted_actions = web_automation.actions
+                self.logger.info(f"Found existing web automation for workflow {job.workflow_id}, node {job.node_id}")
+            else:
+                # Create new web automation entry
+                self.logger.info(f"Creating new web automation for workflow {job.workflow_id}, node {job.node_id}")
+                web_automation = create_web_automation(
+                    db,
+                    WebAutomationCreate(
+                        workflow_id=job.workflow_id,
+                        node_id=job.node_id,
+                        goal=job.goal,
+                        actions={},  # empty initially
+                    )
+                )
+            
+            # Determine if we need to run a new agentic task
+            if forceNewRun or (not extracted_actions) or len(extracted_actions) == 0 or job.goal != web_automation.goal:
+                self.logger.info(f"Running new agentic browser task for goal: {job.goal}")
+                
+                try:
+                    # Do new agentic task
+                    new_history, final_result, is_task_done, is_task_successful, errors = await self.webexecutor.run_browser_task(
+                        job.goal, 
+                        "", 
+                        constants.BROWSER_USE_PREVIEW_MODEL, 
+                        False
+                    )
+                    
+                    if not is_task_done or not is_task_successful:
+                        error_msg = f"Web automation task failed or incomplete. Errors: {errors}"
+                        self.logger.error(error_msg)
+                        raise BrowserTaskFailedException(job.goal, errors)
+                    
+                    # Extract actions to perform based on web automation
+                    self.logger.info("Extracting actions from browser history")
+                    extracted_actions = convert_history_to_playwright_format(
+                        history_data=new_history, 
+                        save_to_file=False,
+                        verbose=True
+                    )
+                    
+                    # Save the updated goal and actions
+                    web_automation.goal = job.goal 
+                    web_automation.actions = extracted_actions
+                    db.commit()
+                    
+                    self.logger.info(f"Successfully completed new automation and saved {len(extracted_actions)} actions")
+                    
+                    return {
+                        "status": "COMPLETED",
+                        "result": final_result
+                    }
+                    
+                except BrowserTaskFailedException:
+                    raise
+                except Exception as e:
+                    self.logger.exception(f"Error during browser task execution: {e}")
+                    raise BrowserTaskFailedException(job.goal, [str(e)])
+            else:
+                # Reuse existing extracted actions
+                self.logger.info(f"Reusing existing {len(extracted_actions)} actions for web automation")
+                
+                try:
+                    results = await self.webexecutor.replay_browser_task(extracted_actions)
+                    
+                    # Use LLM to summarize the results
+                    self.logger.info("Calling LLM to summarize results")
+                    messages = [
+                        Message(role=Role.SYSTEM, content="""
+                            You are an expert which extracts summarised web automation results into compressed data without losing information.
+                            IMPORTANT: The final result should be concise and to the point but contains all information in a compressed state, avoiding any unnecessary elaboration or errors, max limit 100 words.
+                            Do not mention extraction status or any metadata in the final result.
+                            """),
+                        Message(role=Role.USER, content=f"Intended Job: {job.goal}"),
+                        Message(role=Role.USER, content=f"Retrieved information:\n{results}"),
+                    ]
+                    
+                    try:
+                        retrieved_result = await self.llm.complete(
+                            messages,
+                            provider="openai",
+                            temperature=0.1,
+                        )
+                        self.logger.info(f"Final summarized result: {retrieved_result}")
+                        
+                        return {
+                            "status": "COMPLETED",
+                            "result": retrieved_result
+                        }
+                    except Exception as e:
+                        self.logger.error(f"LLM API error during summarization: {e}")
+                        raise LLMAPIException("openai", str(e))
+                        
+                except Exception as e:
+                    self.logger.exception(f"Error during browser task replay: {e}")
+                    raise BrowserTaskFailedException(job.goal, [str(e)])
+                    
+        except (BrowserTaskFailedException, LLMAPIException):
+            # Re-raise our custom exceptions
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in run_web_automation: {e}")
+            raise
+        finally:
+            db.close()

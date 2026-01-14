@@ -13,7 +13,7 @@ def create_job_api(job: JobCreate, db=Depends(get_db)):
     job_id = create_job(db,job)
     # push to the queue using celery here 
     process_job.delay(job_id)
-    return {"job_id": job_id, "status": "queued1"}
+    return {"job_id": job_id, "status": "queued"}
 
 @router.get("/job/{job_id}")
 def get_job_api(job_id: UUID, db=Depends(get_db)):
