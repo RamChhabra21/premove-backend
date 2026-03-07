@@ -2,6 +2,7 @@ from app.llm.providers.open_ai import OpenAIProvider
 from app.llm.providers.anthropic import AnthropicProvider
 from app.llm.providers.perplexity import PerplexityProvider
 from app.llm.providers.groq import GroqProvider
+from app.llm.providers.cerebras import CerebrasProvider
 from app.llm.types import LLMRequest, LLMResponse
 
 class LLMGateway:
@@ -10,7 +11,8 @@ class LLMGateway:
             "openai": OpenAIProvider,
             "anthropic": AnthropicProvider,
             "perplexity": PerplexityProvider,
-            "groq": GroqProvider
+            "groq": GroqProvider,
+            "cerebras": CerebrasProvider
         }
         self._instances = {}
         self.default_provider = "groq"

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = Field(default="", description="Anthropic API key")
     PERPLEXITY_API_KEY: str = Field(default="", description="Perplexity API key")
     PERPLEXITY_BASE_URL: str = Field(default="https://api.perplexity.ai", description="Perplexity API base URL")
+    GROQ_API_KEY: str = Field(default="", description="Groq API key")
+    CEREBRAS_API_KEY: str = Field(default="", description="Cerebras API key")
     
     # Browser Automation
     BROWSER_USE_MODEL: str = Field(default="gpt-4o", description="Default model for browser automation")
