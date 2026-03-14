@@ -32,6 +32,9 @@ celery_app.conf.update(
     # Worker settings
     worker_prefetch_multiplier=1,  # Disable prefetching for fair distribution
     worker_max_tasks_per_child=1000,  # Restart worker after N tasks to prevent memory leaks
+
+    broker_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE},
+    redis_backend_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE},
 )
 
 # Import tasks to register them with Celery
