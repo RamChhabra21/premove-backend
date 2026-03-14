@@ -7,7 +7,7 @@ from app.core.config import settings
 
 class GroqProvider(BaseLLMProvider):
     name = "groq"
-    default_model = "llama-3.1-8b-instant" 
+    default_model = "openai/gpt-oss-20b" 
 
     def __init__(self):
         self.client = AsyncGroq(

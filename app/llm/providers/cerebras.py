@@ -6,7 +6,7 @@ from app.core.config import settings
 
 class CerebrasProvider(BaseLLMProvider):
     name = "cerebras"
-    default_model = "llama-3.3-70b" # High performance default
+    default_model = "gpt-oss-20b" # High performance default
 
     def __init__(self):
         # Cerebras is OpenAI compatible

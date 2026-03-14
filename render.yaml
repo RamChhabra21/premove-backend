@@ -1,0 +1,95 @@
+# render.yaml — Render Blueprint
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Two services built from the same Dockerfile:
+#   premove-api          → FastAPI web server  (port 8001)
+#   premove-celery-worker → Celery background worker
+#
+# All secrets are sync: false — set them in the Render dashboard,
+# never committed to git.
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI Web Service ─────────────────────────────────────────
+  - type: web
+    name: premove-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # CMD in Dockerfile already starts uvicorn on port 8001, no override needed.
+    plan: starter           # change to standard / pro as needed
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+
+      # ── Database ────────────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false          # paste your Postgres URL in Render dashboard
+
+      # ── Upstash Redis ────────────────────────────────────────────
+      # Format: rediss://default:<password>@<host>:<port>
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false          # e.g. rediss://default:<pw>@<host>:<port>/0
+      - key: CELERY_RESULT_BACKEND
+        sync: false          # e.g. rediss://default:<pw>@<host>:<port>/1
+
+      # ── LLM Keys ────────────────────────────────────────────────
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+
+      # ── CORS ─────────────────────────────────────────────────────
+      - key: CORS_ORIGINS
+        value: "*"           # tighten to your frontend origin in production
+
+  # ── Celery Worker ───────────────────────────────────────────────
+  - type: worker
+    name: premove-celery-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    startCommand: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
+    plan: starter
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+
+      # ── Database ────────────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false
+
+      # ── Upstash Redis (same values as web service) ───────────────
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+
+      # ── LLM Keys ────────────────────────────────────────────────
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false

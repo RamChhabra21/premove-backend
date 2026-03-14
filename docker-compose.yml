@@ -1,12 +1,20 @@
 version: "3.9"
 
 services:
+
+  # ── Local Redis (dev only) ──────────────────────────────────────
   redis:
     image: redis:latest
     ports:
       - "6379:6379"
     restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ── Redis Commander (dev UI) ────────────────────────────────────
   redis-commander:
     image: rediscommander/redis-commander
     environment:
@@ -16,3 +24,26 @@ services:
     depends_on:
       - redis
     restart: always
+
+  # ── FastAPI Web Service ─────────────────────────────────────────
+  api:
+    build: .
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Celery Worker ───────────────────────────────────────────────
+  celery-worker:
+    build: .
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
