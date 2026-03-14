@@ -1,5 +1,6 @@
 from celery import Celery
 from app.core.config import settings
+import ssl
 
 # Initialize Celery with configuration from settings
 celery_app = Celery(
