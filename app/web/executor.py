@@ -30,9 +30,9 @@ class WebExecutor():
             )
         )
         try:
-            # llm = ChatBrowserUse(model=model)
+            llm = ChatBrowserUse(model=model)
 
-            llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct")
+            # llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct")
 
 
             # Use prompt template from prompts folder

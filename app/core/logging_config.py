@@ -65,7 +65,7 @@ def setup_logging():
     
     # Set specific log levels for third-party libraries
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-    logging.getLogger("celery").setLevel(logging.INFO)
+    logging.getLogger("celery").setLevel(logging.WARNING)
     logging.getLogger("uvicorn").setLevel(logging.INFO)
     logging.getLogger("fastapi").setLevel(logging.INFO)
     

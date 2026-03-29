@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = Field(default="development", description="Environment: development, staging, production")
     DEBUG: bool = Field(default=False, description="Debug mode")
+    DB_ECHO: bool = Field(default=False, description="Enable SQLAlchemy SQL logging")
     
     # Database
     DATABASE_URL: str = Field(..., description="PostgreSQL connection string")
