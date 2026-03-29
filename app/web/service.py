@@ -80,7 +80,7 @@ class WebService():
                     new_history, final_result, is_task_done, is_task_successful, errors = await self.webexecutor.run_browser_task(
                         planned_instructions,  # Use planned instructions instead of raw goal
                         "", 
-                        constants.BROWSER_USE_PREVIEW_MODEL, 
+                        constants.BROWSER_USE_BU_1_0, 
                         False
                     )
                     

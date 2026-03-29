@@ -1,5 +1,5 @@
 # web/executor.py
-from browser_use import Agent, Browser, ChatBrowserUse, BrowserProfile
+from browser_use import Agent, Browser, ChatBrowserUse, BrowserProfile, ChatGroq
 import json
 import logging
 from app.web.replay.playwright_engine import execute_model_actions
@@ -30,7 +30,10 @@ class WebExecutor():
             )
         )
         try:
-            llm = ChatBrowserUse(model=model)
+            # llm = ChatBrowserUse(model=model)
+
+            llm = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct")
+
 
             # Use prompt template from prompts folder
             task_prompt = BROWSER_TASK_PROMPT.format(
