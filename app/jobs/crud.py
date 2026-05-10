@@ -6,13 +6,14 @@ from uuid import UUID
 from app.core.exceptions import JobNotFoundException
 
 
-def create_job(db: Session, job_dto: JobCreate) -> str:
+def create_job(db: Session, job_dto: JobCreate, user_id: str = None) -> str:
     new_job = Job(
         id=uuid7(),
         workflow_id=job_dto.workflow_id,
         goal=job_dto.goal,
         node_id=job_dto.node_id,
-        workflow_type=job_dto.workflow_type.value
+        workflow_type=job_dto.workflow_type.value,
+        user_id=user_id
     )
     db.add(new_job)      
     db.commit()         

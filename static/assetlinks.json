@@ -1,0 +1,14 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.example.premove",
+            "sha256_cert_fingerprints": [
+                "16:DC:66:F7:02:3C:50:09:8F:29:80:C4:41:7C:7D:22:D4:A3:33:A7:7F:89:F8:7E:5A:C0:87:50:B8:F1:24:A1"
+            ]
+        }
+    }
+]

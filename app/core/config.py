@@ -54,11 +54,16 @@ class Settings(BaseSettings):
     API_TITLE: str = Field(default="Premove Backend", description="API title")
     API_VERSION: str = Field(default="1.0.0", description="API version")
     
-    # Authentication (optional - for future use)
+    # Authentication
     API_KEY_ENABLED: bool = Field(default=False, description="Enable API key authentication")
     JWT_SECRET_KEY: str = Field(default="", description="JWT secret key for token generation")
     JWT_ALGORITHM: str = Field(default="HS256", description="JWT algorithm")
     JWT_EXPIRATION_HOURS: int = Field(default=24, description="JWT token expiration in hours")
+    
+    # Firebase
+    FIREBASE_PROJECT_ID: str = Field(default="", description="Firebase project ID")
+    FIREBASE_CREDENTIALS_PATH: str = Field(default="", description="Path to Firebase service account JSON")
+    FIREBASE_SERVICE_ACCOUNT_JSON: str = Field(default="", description="Firebase service account JSON string")
     
     @field_validator("DATABASE_URL")
     @classmethod

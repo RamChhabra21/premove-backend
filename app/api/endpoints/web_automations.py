@@ -5,11 +5,16 @@ from app.core.deps import get_db
 from app.models.web_automations import WebAutomation
 from app.web.schemas import WebAutomationCreate, WebAutomationResponse
 from app.web.crud import create_web_automation, get_web_automation
+from app.core.auth import get_user_id
 
 router = APIRouter(prefix="/web_automations", tags=["Web Automations"])
 
 @router.post("/", response_model=WebAutomationResponse)
-def create_web_automation_endpoint(payload: WebAutomationCreate, db: Session = Depends(get_db)):
+def create_web_automation_endpoint(
+    payload: WebAutomationCreate, 
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_user_id)
+):
     # Optional uniqueness check for workflow_id + node_id
     existing = db.query(WebAutomation).filter_by(
         workflow_id=payload.workflow_id,
@@ -18,12 +23,20 @@ def create_web_automation_endpoint(payload: WebAutomationCreate, db: Session = D
     if existing:
         raise HTTPException(status_code=400, detail="Workflow + Node combination already exists")
 
-    obj = create_web_automation(db, payload)
+    obj = create_web_automation(db, payload, user_id=user_id)
     return obj
 
 @router.get("/{automation_id}", response_model=WebAutomationResponse)
-def get_web_automation_endpoint(automation_id: UUID, db: Session = Depends(get_db)):
+def get_web_automation_endpoint(
+    automation_id: UUID, 
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_user_id)
+):
     obj = get_web_automation(db, str(automation_id))
     if not obj:
         raise HTTPException(status_code=404, detail="Web Automation not found")
+    
+    if obj.user_id and obj.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this automation")
+        
     return obj

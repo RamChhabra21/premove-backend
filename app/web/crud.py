@@ -7,11 +7,13 @@ from app.web.schemas import WebAutomationCreate
 def create_web_automation(
     db: Session,
     payload: WebAutomationCreate,
+    user_id: str = None,
 ) -> WebAutomation:
     obj = WebAutomation(
         id=uuid4(),
         workflow_id=payload.workflow_id,
         node_id=payload.node_id,
+        user_id=user_id,
         goal=payload.goal,
         actions=payload.actions,
     )

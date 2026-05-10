@@ -25,6 +25,7 @@ class Job(Base):
     node_id = Column(String, nullable=False, default="root")                
     goal = Column(String, nullable=False)                                   
     workflow_type = Column(Enum(WorkflowTypeEnum), nullable=False)
+    user_id = Column(String, nullable=True, index=True) # Firebase UID
     status = Column(Enum(JobStatusEnum), nullable=False, default=JobStatusEnum.PENDING)
     result = Column(String)                                                
     error_message = Column(String)                                         

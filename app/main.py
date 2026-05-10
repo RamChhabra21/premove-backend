@@ -7,8 +7,10 @@ from app.core.config import settings
 from app.core.database import create_tables, engine
 from app.core.logging_config import logger
 from app.core.exceptions import PremoveBaseException
+from app.models import Base  # This now contains all model metadata
 from sqlalchemy import text
 import traceback
+from fastapi.responses import FileResponse
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -145,6 +147,12 @@ async def root():
         "docs": "/docs" if settings.DEBUG else "disabled"
     }
 
+@app.get("/.well-known/assetlinks.json")
+async def assetlinks():
+    return FileResponse(
+        "static/assetlinks.json",  
+        media_type="application/json"
+    )
 
 # Include API router with versioning
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)

@@ -31,3 +31,4 @@ temp/
 # IDEs
 .vscode/
 .idea/
+firebase-service-account.json

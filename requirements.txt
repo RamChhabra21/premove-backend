@@ -10,3 +10,6 @@ uuid6
 pydantic-settings
 browser-use[all]
 playwright
+firebase-admin
+PyJWT
+cryptography
