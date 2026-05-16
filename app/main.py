@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.api.api import api_router
+from app.api.api import api_router, public_router
 from app.core.config import settings
 from app.core.database import create_tables, engine
 from app.core.logging_config import logger
@@ -156,3 +156,4 @@ async def assetlinks():
 
 # Include API router with versioning
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+app.include_router(public_router)  # add this if not already there
