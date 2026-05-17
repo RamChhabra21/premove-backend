@@ -7,6 +7,7 @@ from app.core.logging_config import logger
 from app.core.exceptions import InvalidTokenException, TokenExpiredException
 from app.core.deps import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from app.models.users import User
 import json
 import os
@@ -92,19 +93,22 @@ async def get_current_db_user(
     if not uid:
         raise InvalidTokenException("UID missing from token")
 
-    user = db.query(User).filter(User.id == uid).first()
+    # Query by firebase_uid instead of id
+    user = db.query(User).filter(User.firebase_uid == uid).first()
     
     if not user:
         # Auto-registration flow
         email = payload.get("email")
         if not email:
-            raise InvalidTokenException("Email missing from token; required for registration")
+            # Fallback or error depending on requirements
+            # In some cases email might be missing from token if not verified or social provider issue
+            logger.warning(f"Email missing from token for user {uid}")
             
         user = User(
-            id=uid,
+            firebase_uid=uid,
             email=email,
             name=payload.get("name"),
-            picture=payload.get("picture")
+            profile_url=payload.get("picture")
         )
         db.add(user)
         try:
@@ -115,9 +119,17 @@ async def get_current_db_user(
             db.rollback()
             logger.error(f"Failed to register user {uid}: {e}")
             # Try to get the user again in case of race condition
-            user = db.query(User).filter(User.id == uid).first()
+            user = db.query(User).filter(User.firebase_uid == uid).first()
             if not user:
                 raise HTTPException(status_code=500, detail="Failed to create/fetch user record")
+    
+    # Update last_seen_at on every successful identification
+    try:
+        user.last_seen_at = func.now()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update last_seen_at for user {uid}: {e}")
     
     return user
 

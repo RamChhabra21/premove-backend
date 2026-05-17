@@ -154,6 +154,6 @@ async def assetlinks():
         media_type="application/json"
     )
 
-# Include API router with versioning
-app.include_router(api_router, prefix=settings.API_V1_PREFIX)
-app.include_router(public_router)  # add this if not already there
+# Include API router
+app.include_router(api_router)
+app.include_router(public_router)
