@@ -21,3 +21,6 @@ __pycache__/
 *.log
 *.sqlite
 *.db
+
+# Credentials
+firebase-service-account.json

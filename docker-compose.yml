@@ -7,6 +7,8 @@ services:
       - "8001:8001"
     env_file:
       - .env
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     restart: unless-stopped
 
   celery-worker:
@@ -14,4 +16,6 @@ services:
     command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
     env_file:
       - .env
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     restart: unless-stopped

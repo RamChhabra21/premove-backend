@@ -1,0 +1,71 @@
+name: Deploy to Hetzner VPS
+
+on:
+  push:
+    branches:
+      - main          # triggers on push to main
+  workflow_dispatch:  # allows manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ─── 1. Checkout code ─────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ─── 2. Set up SSH agent ──────────────────────────────────────────────
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      # ─── 3. Add VPS to known hosts ────────────────────────────────────────
+      - name: Add VPS to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      # ─── 4. Copy updated code to VPS ─────────────────────────────────────
+      # We rsync the code, but EXCLUDE secrets (they already live on the VPS)
+      - name: Sync code to VPS
+        run: |
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.env' \
+            --exclude='firebase-service-account.json' \
+            --exclude='venv/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='logs/' \
+            ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/root/premove-backend/
+
+      # ─── 5. Deploy via Docker Compose ─────────────────────────────────────
+      - name: Deploy with Docker Compose
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            set -e
+            cd /root/premove-backend
+
+            echo "==> Pulling latest images..."
+            docker compose pull --ignore-pull-failures || true
+
+            echo "==> Building & restarting containers..."
+            docker compose up -d --build --remove-orphans
+
+            echo "==> Pruning dangling images..."
+            docker image prune -f
+
+            echo "==> Container status:"
+            docker compose ps
+          EOF
+
+      # ─── 6. Health check ──────────────────────────────────────────────────
+      - name: Health check
+        run: |
+          echo "Waiting for app to start..."
+          sleep 10
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "curl -sf http://localhost:8001/health || (docker compose -f /root/premove-backend/docker-compose.yml logs --tail=50 && exit 1)"
