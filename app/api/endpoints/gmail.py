@@ -19,7 +19,7 @@ class GmailExchangeRequest(BaseModel):
     code_verifier: str
 
 
-@router.get("/gmail/callback")
+@router.get("/callback")
 async def gmail_callback(code: str, state: str):
     # This URL triggers the Intent Filter in your Android Manifest
     redirect_url = f"premove://gmail?code={code}&state={state}"
