@@ -1,3 +1,4 @@
+from starlette.responses import RedirectResponse
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import httpx
@@ -18,17 +19,11 @@ class GmailExchangeRequest(BaseModel):
     code_verifier: str
 
 
-@router.get("/callback")
-async def gmail_callback(code: str = None, state: str = None, error: str = None):
-    """
-    Google redirects here after user authorizes Gmail access.
-    The mobile app picks up the `code` from this response and calls /gmail/exchange.
-    """
-    if error:
-        logger.warning(f"Gmail OAuth denied: {error}")
-        return {"status": "denied", "error": error}
-    return {"status": "ok", "code": code}
-
+@router.get("/gmail/callback")
+async def gmail_callback(code: str, state: str):
+    # This URL triggers the Intent Filter in your Android Manifest
+    redirect_url = f"premove://gmail?code={code}&state={state}"
+    return RedirectResponse(url=redirect_url)
 
 @router.post("/exchange")
 async def gmail_exchange(
