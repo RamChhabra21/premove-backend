@@ -122,15 +122,23 @@ async def gmail_exchange(
         logger.error(f"Failed to save Gmail integration: {e}")
         raise HTTPException(status_code=500, detail="Database error")
     
+    
     async with httpx.AsyncClient(timeout=15.0) as client:
+        topic_name = (
+            f"projects/{os.getenv('GOOGLE_PROJECT_ID')}/topics/"
+            f"{os.getenv('GMAIL_PUBSUB_TOPIC')}"
+        )
+
+        logger.info(f"Using Gmail watch topic: {topic_name}")
+
         watch_response = await client.post(
             "https://gmail.googleapis.com/gmail/v1/users/me/watch",
             headers={
                 "Authorization": f"Bearer {access_token}",
             },
             json={
-                "topicName": f"projects/{os.getenv('GOOGLE_PROJECT_ID')}/topics/{os.getenv('GMAIL_PUBSUB_TOPIC')}"
-            }
+                "topicName": topic_name,
+            },
         )
 
     watch_data = watch_response.json()
