@@ -8,6 +8,7 @@ from app.core.auth import get_current_db_user
 from app.models.users import User
 from app.models.integrations import UserIntegration
 from app.core.logging_config import logger
+from app.redis_client import redis_client
 
 router = APIRouter()
 
@@ -115,6 +116,16 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
     if data.get("type") == "event_callback":
         event = data.get("event", {})
         slack_user_id = event.get("user")
+
+        # --- Idempotency check via Redis ---
+        event_id = data.get("event_id")
+        if event_id:
+            redis_key = f"slack:processed:{event_id}"
+            # SET NX = set only if key does not exist; returns True if set, None if already existed
+            already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
+            if already_processed:
+                logger.info(f"Duplicate Slack event {event_id}, skipping.")
+                return {"status": "ok"}
         
         # Find the connection to get the FCM token
         integration = db.query(UserIntegration).filter_by(

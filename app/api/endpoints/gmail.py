@@ -12,6 +12,7 @@ from app.core.auth import get_current_db_user
 from app.models.users import User
 from app.models.integrations import UserIntegration
 from app.core.logging_config import logger
+from app.redis_client import redis_client
 
 router = APIRouter()
 
@@ -354,6 +355,16 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if not body or "message" not in body or "data" not in body["message"]:
         logger.warning(f"Unknown Gmail webhook structure: {body}")
         return {"status": "ok"}
+
+    # --- Idempotency check via Redis ---
+    pubsub_message_id = body["message"].get("messageId")
+    if pubsub_message_id:
+        redis_key = f"gmail:processed:{pubsub_message_id}"
+        # SET NX = set only if key does not exist; returns True if set, None if already existed
+        already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
+        if already_processed:
+            logger.info(f"Duplicate Gmail Pub/Sub message {pubsub_message_id}, skipping.")
+            return {"status": "ok"}
         
     try:
         encoded_data = body["message"]["data"]
