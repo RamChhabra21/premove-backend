@@ -129,8 +129,8 @@ async def gmail_exchange(
                 "Authorization": f"Bearer {access_token}",
             },
             json={
-                "topicName": "projects/YOUR_PROJECT/topics/YOUR_TOPIC",
-            },
+                "topicName": f"projects/{os.getenv('GOOGLE_PROJECT_ID')}/topics/{os.getenv('GMAIL_PUBSUB_TOPIC')}"
+            }
         )
 
     watch_data = watch_response.json()
