@@ -180,7 +180,7 @@ async def gmail_exchange(
     metadata = integration.metadata_json or {}
     metadata["history_id"] = watch_data["historyId"]
     metadata["watch_expiration"] = watch_data["expiration"]
-    integration.metadata_json = metadata
+    integration.metadata_json = dict(metadata)
 
     try:
         db.commit()
@@ -328,8 +328,8 @@ def parse_gmail_metadata(message_detail: dict):
     return {
         "message_id": message_detail.get("id"),
         "thread_id": message_detail.get("threadId"),
-        "from": from_email,
-        "from_name": from_name,
+        "sender": from_email,
+        "sender_name": from_name,
         "subject": subject,
         "snippet": message_detail.get("snippet", ""),
         "labels": message_detail.get("labelIds", []),
@@ -392,7 +392,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if not fcm_token:
         logger.warning(f"No FCM token found for Gmail user {email}, skipping push.")
         metadata["history_id"] = history_id
-        integration.metadata_json = metadata
+        integration.metadata_json = dict(metadata)
         db.commit()
         return {"status": "ok"}
         
@@ -466,15 +466,15 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 send_fcm_notification(
                     token=fcm_token,
                     title="Gmail Activity",
-                    body=f"{parsed['from_name']}: {parsed['subject']}",
+                    body=f"{parsed['sender_name']}: {parsed['subject']}",
                     data={
                         "type": "gmail_event",
                         "nodeType": "GMAIL_MESSAGE_RECEIVED",
                         "email": email,
                         "message_id": parsed["message_id"],
                         "thread_id": parsed["thread_id"],
-                        "from": parsed["from"],
-                        "from_name": parsed["from_name"],
+                        "sender": parsed["sender"],
+                        "sender_name": parsed["sender_name"],
                         "subject": parsed["subject"],
                         "snippet": parsed["snippet"],
                         "labels": json.dumps(parsed["labels"]),
@@ -486,7 +486,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             
     # 4. Save the new historyId in integration metadata
     metadata["history_id"] = history_id
-    integration.metadata_json = metadata
+    integration.metadata_json = dict(metadata)
     try:
         db.commit()
     except Exception as e:
