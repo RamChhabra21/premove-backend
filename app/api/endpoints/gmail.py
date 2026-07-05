@@ -69,19 +69,43 @@ async def gmail_exchange(
     refresh_token = data.get("refresh_token")
 
     # Fetch the Gmail user's profile to get their email / Google ID
+    google_user_id = None
+    google_email = None
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Primary: Try Gmail profile API (most reliable since Gmail scope is authorized)
             profile_response = await client.get(
-                "https://www.googleapis.com/oauth2/v2/userinfo",
+                "https://gmail.googleapis.com/gmail/v1/users/me/profile",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
-    except httpx.RequestError as e:
-        logger.error(f"Google userinfo fetch failed: {e}")
-        raise HTTPException(status_code=502, detail="Failed to fetch Google profile")
+            if profile_response.status_code == 200:
+                profile_data = profile_response.json()
+                google_email = profile_data.get("emailAddress")
+                google_user_id = google_email
+    except Exception as e:
+        logger.warning(f"Failed to fetch email via Gmail profile API: {e}")
 
-    profile = profile_response.json()
-    google_user_id = profile.get("id")
-    google_email = profile.get("email")
+    # 2. Fallback: Try Google userinfo API
+    if not google_email:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                userinfo_response = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if userinfo_response.status_code == 200:
+                    userinfo_data = userinfo_response.json()
+                    google_email = userinfo_data.get("email")
+                    google_user_id = userinfo_data.get("id") or google_email
+        except Exception as e:
+            logger.error(f"Fallback Google userinfo fetch failed: {e}")
+
+    if not google_email:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to retrieve Google email address. Ensure proper scopes are authorized."
+        )
 
     logger.info(f"Gmail OAuth success for Google user {google_email} (user_id={user_id})")
 
