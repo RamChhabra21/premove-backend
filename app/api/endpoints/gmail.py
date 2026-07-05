@@ -172,7 +172,7 @@ async def gmail_exchange(
         "email": google_email,
     }
 
-@router.post('webhook')
+@router.post("/webhook")
 async def webhook(request: Request):
     body = await request.json()
     logger.info(f"Received Gmail Pub/Sub notification: {body}")
