@@ -1,5 +1,5 @@
 from starlette.responses import RedirectResponse
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 import httpx
 import os
@@ -17,7 +17,6 @@ class GmailExchangeRequest(BaseModel):
     code: str
     fcm_token: str
     code_verifier: str
-
 
 @router.get("/callback")
 async def gmail_callback(code: str, state: str):
@@ -122,13 +121,54 @@ async def gmail_exchange(
         db.rollback()
         logger.error(f"Failed to save Gmail integration: {e}")
         raise HTTPException(status_code=500, detail="Database error")
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        watch_response = await client.post(
+            "https://gmail.googleapis.com/gmail/v1/users/me/watch",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+            },
+            json={
+                "topicName": "projects/YOUR_PROJECT/topics/YOUR_TOPIC",
+            },
+        )
 
+    watch_data = watch_response.json()
+
+    if watch_response.status_code != 200:
+        logger.error(f"Failed to start Gmail watch: {watch_data}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to start Gmail watch",
+        )
+    
+    metadata = integration.metadata_json or {}
+    metadata["history_id"] = watch_data["historyId"]
+    metadata["watch_expiration"] = watch_data["expiration"]
+    integration.metadata_json = metadata
+
+    try:
+        db.commit()
+        logger.info(
+            f"Gmail watch started for user {user_id}. "
+            f"history_id={watch_data['historyId']}, "
+            f"expiration={watch_data['expiration']}"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save Gmail integration: {e}")
+        raise HTTPException(status_code=500, detail="Database error")
     return {
         "status": "ok",
         "google_user_id": google_user_id,
         "email": google_email,
     }
 
+@router.post('webhook')
+async def webhook(request: Request):
+    body = await request.json()
+    logger.info(f"Received Gmail Pub/Sub notification: {body}")
+    return {"status": "ok"}
 
 @router.get("/me")
 async def get_gmail_me(
