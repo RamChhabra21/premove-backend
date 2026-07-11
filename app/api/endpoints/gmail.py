@@ -453,22 +453,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         UserIntegration.provider == "gmail",
         UserIntegration.metadata_json["email"].astext == email
     ).all()
-    logger.info(
-        f"[HISTDBG] Found {len(all_matches)} integration row(s) for {email}: "
-        f"{[(row.id, (row.metadata_json or {}).get('history_id')) for row in all_matches]}"
-    )
-    logger.info(f"[HISTDBG] Using integration.id={integration.id} for this request")
         
     metadata = integration.metadata_json or {}
     last_history_id = metadata.get("history_id")
     fcm_token = metadata.get("fcm_token")
 
-    # >>> LOG: what we read as "last known" cursor for this row
-    logger.info(
-        f"[HISTDBG] integration.id={integration.id} metadata_json={metadata} "
-        f"last_history_id={last_history_id!r} (type={type(last_history_id).__name__})"
-    )
-    
     if not fcm_token:
         logger.warning(f"No FCM token found for Gmail user {email}, skipping push.")
         metadata["history_id"] = history_id
@@ -481,7 +470,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     # Try to renew the watch in the background if it's expiring soon
     await renew_watch_if_needed(db, integration)
     messages_to_push = []
-    history_success = False
     
     # 1. Attempt to call history.list if we have a last_history_id
     if last_history_id:
@@ -498,17 +486,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     "historyTypes": "messageAdded"
                 }
             )
-            # >>> LOG: raw response status + body from history.list
-            logger.info(f"[HISTDBG] history.list status={history_response.status_code} body={history_response.text[:1000]}")
             if history_response.status_code == 200:
-                history_success = True
                 history_data = history_response.json()
                 for entry in history_data.get("history", []):
                     for added in entry.get("messagesAdded", []):
                         msg = added.get("message")
                         if msg and msg.get("id") not in [m["id"] for m in messages_to_push]:
                             messages_to_push.append(msg)
-                logger.info(f"[HISTDBG] history.list returned {len(messages_to_push)} new message(s): {[m['id'] for m in messages_to_push]}")
             else:
                 logger.warning(
                     f"History list failed with status {history_response.status_code} "
@@ -517,12 +501,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"Error fetching Gmail history for user {email}: {e}")
     else:
-        # >>> LOG: confirms we skipped history.list entirely because last_history_id was falsy
-        logger.info(f"[HISTDBG] Skipping history.list branch entirely — last_history_id was falsy ({last_history_id!r})")
-            
-    # 2. Fallback: fetch the latest message list only if history list failed or was not available
-    if not history_success and not messages_to_push:
-        logger.info(f"[HISTDBG] Entering fallback messages.list branch (history_success={history_success})")
         list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
         try:
             list_response = await call_gmail_api_with_retry(
@@ -539,10 +517,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"Error fetching latest Gmail message list for user {email}: {e}")
             
-    # 3. Process messages and trigger FCM push
+    # 2. Process messages and trigger FCM push
     from app.utils.fcm import send_fcm_notification
     
-    for message in messages_to_push[:5]:
+    # capping to search for last 5 messages only
+    for message in messages_to_push[-5:]:
         msg_id = message["id"]
         # --- Per-message dedup: skip if this Gmail message was already pushed ---
         msg_redis_key = f"gmail:msg:{msg_id}"
@@ -589,26 +568,14 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             logger.error(f"Error processing message {msg_id} for push: {e}")
             # Release the Redis key so it can be retried on next webhook
             redis_client.delete(msg_redis_key)
-    # 4. Save the new historyId only AFTER successful processing
+    # 3. Save the new historyId only AFTER successful processing
     metadata = dict(integration.metadata_json or {})
 
     metadata["history_id"] = history_id
 
     integration.metadata_json = metadata
     try:
-        logger.info(f"Dirty: {db.is_modified(integration, include_collections=True)}")
-        logger.info(f"Session dirty: {integration in db.dirty}")
-        logger.info(inspect(integration).attrs.metadata_json.history)
         db.commit()
-        logger.info(f"Saved history_id={history_id} for Gmail user {email} after processing.")
-
-        # >>> LOG: re-fetch from DB in a fresh query to confirm it actually persisted
-        db.refresh(integration)
-        verify = db.query(UserIntegration).filter(UserIntegration.id == integration.id).first()
-        logger.info(
-            f"[HISTDBG] Post-commit verification — integration.id={integration.id} "
-            f"metadata_json now = {verify.metadata_json}"
-        )
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to save final history_id for {email}: {e}")
