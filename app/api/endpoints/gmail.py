@@ -473,10 +473,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         metadata["history_id"] = history_id
         integration.metadata_json = dict(metadata)
 
-        logger.info(f"Dirty: {db.is_modified(integration, include_collections=True)}")
-        logger.info(f"Session dirty: {integration in db.dirty}")
-        logger.info(inspect(integration).attrs.metadata_json.history)
-        
         db.commit()
         logger.info(f"[HISTDBG] (no fcm_token path) saved history_id={history_id} for integration.id={integration.id}")
         return {"status": "ok"}
@@ -596,6 +592,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     metadata["history_id"] = history_id
     integration.metadata_json = dict(metadata)
     try:
+        logger.info(f"Dirty: {db.is_modified(integration, include_collections=True)}")
+        logger.info(f"Session dirty: {integration in db.dirty}")
+        logger.info(inspect(integration).attrs.metadata_json.history)
         db.commit()
         logger.info(f"Saved history_id={history_id} for Gmail user {email} after processing.")
 
