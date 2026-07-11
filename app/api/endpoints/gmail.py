@@ -1,3 +1,4 @@
+from app.models import integrations
 from starlette.responses import RedirectResponse
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
@@ -589,8 +590,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             # Release the Redis key so it can be retried on next webhook
             redis_client.delete(msg_redis_key)
     # 4. Save the new historyId only AFTER successful processing
+    metadata = dict(integration.metadata_json or {})
+
     metadata["history_id"] = history_id
-    integration.metadata_json = dict(metadata)
+
+    integration.metadata_json = metadata
     try:
         logger.info(f"Dirty: {db.is_modified(integration, include_collections=True)}")
         logger.info(f"Session dirty: {integration in db.dirty}")
