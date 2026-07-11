@@ -293,6 +293,53 @@ async def call_gmail_api_with_retry(
     return response
 
 
+async def renew_watch_if_needed(db: Session, integration: UserIntegration) -> bool:
+    """
+    Checks if the Gmail watch is close to expiring (less than 2 days remaining)
+    and renews it if necessary.
+    """
+    import time
+    metadata = integration.metadata_json or {}
+    watch_expiration = metadata.get("watch_expiration")
+    
+    # If no expiration or within 2 days (172800 seconds) of expiring
+    # watch_expiration is in milliseconds since epoch
+    now_ms = int(time.time() * 1000)
+    buffer_ms = 2 * 24 * 60 * 60 * 1000  # 2 days
+    
+    if not watch_expiration or (int(watch_expiration) - now_ms < buffer_ms):
+        logger.info(f"Gmail watch for {metadata.get('email')} is expiring soon or missing. Renewing...")
+        credentials = integration.credentials or {}
+        access_token = credentials.get("access_token")
+        if not access_token:
+            return False
+            
+        topic_name = (
+            f"projects/{os.getenv('GOOGLE_PROJECT_ID')}/topics/"
+            f"{os.getenv('GMAIL_PUBSUB_TOPIC')}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                watch_response = await client.post(
+                    "https://gmail.googleapis.com/gmail/v1/users/me/watch",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    json={"topicName": topic_name},
+                )
+                if watch_response.status_code == 200:
+                    watch_data = watch_response.json()
+                    metadata["history_id"] = watch_data["historyId"]
+                    metadata["watch_expiration"] = watch_data["expiration"]
+                    integration.metadata_json = dict(metadata)
+                    db.commit()
+                    logger.info(f"Successfully renewed Gmail watch for {metadata.get('email')}")
+                    return True
+                else:
+                    logger.error(f"Failed to renew watch: {watch_response.json()}")
+        except Exception as e:
+            logger.error(f"Error renewing watch: {e}")
+    return False
+
+
 def get_gmail_integration(user_id, db: Session) -> UserIntegration:
     integration = db.query(UserIntegration).filter_by(
         user_id=user_id,
@@ -407,18 +454,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "ok"}
         
-    messages_to_push = []
+    # Try to renew the watch in the background if it's expiring soon
+    await renew_watch_if_needed(db, integration)
 
-    # Save the new historyId FIRST so even if message processing fails, 
-    # the next webhook starts from the correct point and doesn't re-process old messages
-    metadata["history_id"] = history_id
-    integration.metadata_json = dict(metadata)
-    try:
-        db.commit()
-        logger.info(f"Saved history_id={history_id} for Gmail user {email}")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed to save history_id for {email}: {e}")
+    messages_to_push = []
+    history_success = False
     
     # 1. Attempt to call history.list if we have a last_history_id
     if last_history_id:
@@ -435,6 +475,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 }
             )
             if history_response.status_code == 200:
+                history_success = True
                 history_data = history_response.json()
                 for entry in history_data.get("history", []):
                     for added in entry.get("messagesAdded", []):
@@ -449,8 +490,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"Error fetching Gmail history for user {email}: {e}")
             
-    # 2. Fallback: fetch the latest message list
-    if not messages_to_push:
+    # 2. Fallback: fetch the latest message list only if history list failed or was not available
+    if not history_success and not messages_to_push:
         list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
         try:
             list_response = await call_gmail_api_with_retry(
@@ -518,6 +559,16 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             logger.error(f"Error processing message {msg_id} for push: {e}")
             # Release the Redis key so it can be retried on next webhook
             redis_client.delete(msg_redis_key)
+
+    # 4. Save the new historyId only AFTER successful processing
+    metadata["history_id"] = history_id
+    integration.metadata_json = dict(metadata)
+    try:
+        db.commit()
+        logger.info(f"Saved history_id={history_id} for Gmail user {email} after processing.")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save final history_id for {email}: {e}")
 
     return {"status": "ok"}
 

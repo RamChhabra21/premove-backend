@@ -118,3 +118,27 @@ def process_job(self, job_id: str):
     finally:
         db.close()
         logger.debug(f"Database session closed for job {job_id}")
+
+
+@celery_app.task
+def renew_expired_gmail_watches():
+    """
+    Daily/periodic task to check and renew expiring Gmail watches.
+    """
+    import asyncio
+    from app.models.integrations import UserIntegration
+    from app.api.endpoints.gmail import renew_watch_if_needed
+    
+    db = SessionLocal()
+    try:
+        integrations = db.query(UserIntegration).filter_by(provider="gmail").all()
+        logger.info(f"Checking watch expiration for {len(integrations)} Gmail integrations")
+        for integration in integrations:
+            try:
+                renewed = asyncio.run(renew_watch_if_needed(db, integration))
+                if renewed:
+                    logger.info(f"Gmail watch renewed successfully for integration ID {integration.id}")
+            except Exception as e:
+                logger.error(f"Error checking/renewing Gmail watch for integration ID {integration.id}: {e}")
+    finally:
+        db.close()
