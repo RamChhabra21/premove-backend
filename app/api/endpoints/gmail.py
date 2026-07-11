@@ -408,6 +408,17 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "ok"}
         
     messages_to_push = []
+
+    # Save the new historyId FIRST so even if message processing fails, 
+    # the next webhook starts from the correct point and doesn't re-process old messages
+    metadata["history_id"] = history_id
+    integration.metadata_json = dict(metadata)
+    try:
+        db.commit()
+        logger.info(f"Saved history_id={history_id} for Gmail user {email}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save history_id for {email}: {e}")
     
     # 1. Attempt to call history.list if we have a last_history_id
     if last_history_id:
@@ -447,7 +458,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 integration=integration,
                 url=list_url,
                 method="GET",
-                params={"maxResults": 1}
+                params={"maxResults": 5}
             )
             if list_response.status_code == 200:
                 list_data = list_response.json()
@@ -458,8 +469,16 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     # 3. Process messages and trigger FCM push
     from app.utils.fcm import send_fcm_notification
     
-    for message in messages_to_push[:3]:
+    for message in messages_to_push[:5]:
         msg_id = message["id"]
+
+        # --- Per-message dedup: skip if this Gmail message was already pushed ---
+        msg_redis_key = f"gmail:msg:{msg_id}"
+        already_pushed = not redis_client.set(msg_redis_key, "1", nx=True, ex=86400)  # 24h TTL
+        if already_pushed:
+            logger.info(f"Gmail message {msg_id} already pushed, skipping FCM.")
+            continue
+
         msg_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}"
         try:
             msg_response = await call_gmail_api_with_retry(
@@ -473,7 +492,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 msg_detail = msg_response.json()
                 parsed = parse_gmail_metadata(msg_detail)
                 
-                logger.info(f"Triggering FCM push for Gmail user {email}")
+                logger.info(f"Triggering FCM push for Gmail user {email}, message {msg_id}")
                 send_fcm_notification(
                     token=fcm_token,
                     title="Gmail Activity",
@@ -492,18 +511,14 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                         "history_id": str(history_id)
                     }
                 )
+            else:
+                # Release the Redis key so it can be retried on next webhook
+                redis_client.delete(msg_redis_key)
         except Exception as e:
             logger.error(f"Error processing message {msg_id} for push: {e}")
-            
-    # 4. Save the new historyId in integration metadata
-    metadata["history_id"] = history_id
-    integration.metadata_json = dict(metadata)
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed to save updated historyId: {e}")
-        
+            # Release the Redis key so it can be retried on next webhook
+            redis_client.delete(msg_redis_key)
+
     return {"status": "ok"}
 
 

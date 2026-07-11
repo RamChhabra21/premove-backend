@@ -96,6 +96,13 @@ async def shutdown_event():
     logger.info("Shutting down application")
     engine.dispose()
     logger.info("Database connections closed")
+    
+    try:
+        from app.redis_client import redis_client
+        redis_client.connection_pool.disconnect()
+        logger.info("Redis connection pool disconnected successfully")
+    except Exception as e:
+        logger.error(f"Failed to disconnect Redis pool: {e}")
 
 
 # Health check endpoint

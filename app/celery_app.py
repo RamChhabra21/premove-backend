@@ -34,9 +34,21 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # Disable prefetching for fair distribution
     worker_max_tasks_per_child=1000,  # Restart worker after N tasks to prevent memory leaks
 
-    broker_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE},
-    redis_backend_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE},
+    # Upstash Redis optimizations
+    broker_pool_limit=2,  # Reduce connection pool size for broker (default is 10)
+    worker_send_task_events=False,  # Disable task event monitoring to save commands
+    worker_enable_remote_control=False,  # Disable remote control (celery inspect/control)
 )
+
+# Apply SSL configuration dynamically based on scheme
+if settings.CELERY_BROKER_URL.startswith("rediss://"):
+    celery_app.conf.update(
+        broker_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE}
+    )
+if settings.CELERY_RESULT_BACKEND.startswith("rediss://"):
+    celery_app.conf.update(
+        redis_backend_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE}
+    )
 
 # Import tasks to register them with Celery
 from app.tasks import tasks

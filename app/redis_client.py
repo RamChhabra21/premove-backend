@@ -7,5 +7,8 @@ from app.core.config import settings
 redis_client = redis.from_url(
     settings.REDIS_URL,
     decode_responses=True,
-    ssl_cert_reqs=ssl.CERT_NONE if settings.REDIS_URL.startswith("rediss://") else None
+    ssl_cert_reqs=ssl.CERT_NONE if settings.REDIS_URL.startswith("rediss://") else None,
+    max_connections=5,
+    socket_timeout=5,
+    socket_connect_timeout=5,
 )
