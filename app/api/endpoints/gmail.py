@@ -402,7 +402,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if not body or "message" not in body or "data" not in body["message"]:
         logger.warning(f"Unknown Gmail webhook structure: {body}")
         return {"status": "ok"}
-
     # --- Idempotency check via Redis ---
     pubsub_message_id = body["message"].get("messageId")
     if pubsub_message_id:
@@ -429,6 +428,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     email = message_data.get("emailAddress")
     history_id = message_data.get("historyId")
     
+    # >>> LOG: what this webhook says the new cursor should be
+    logger.info(f"[HISTDBG] Incoming webhook historyId={history_id} for email={email}")
+    
     if not email or not history_id:
         logger.warning(f"Missing email or historyId in decoded payload: {message_data}")
         return {"status": "ok"}
@@ -442,26 +444,44 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if not integration:
         logger.warning(f"No integration found for Gmail user {email}")
         return {"status": "ok"}
+
+    # >>> LOG: how many rows actually match this email (duplicate-row check)
+    all_matches = db.query(UserIntegration).filter(
+        UserIntegration.provider == "gmail",
+        UserIntegration.metadata_json["email"].astext == email
+    ).all()
+    logger.info(
+        f"[HISTDBG] Found {len(all_matches)} integration row(s) for {email}: "
+        f"{[(row.id, (row.metadata_json or {}).get('history_id')) for row in all_matches]}"
+    )
+    logger.info(f"[HISTDBG] Using integration.id={integration.id} for this request")
         
     metadata = integration.metadata_json or {}
     last_history_id = metadata.get("history_id")
     fcm_token = metadata.get("fcm_token")
+
+    # >>> LOG: what we read as "last known" cursor for this row
+    logger.info(
+        f"[HISTDBG] integration.id={integration.id} metadata_json={metadata} "
+        f"last_history_id={last_history_id!r} (type={type(last_history_id).__name__})"
+    )
     
     if not fcm_token:
         logger.warning(f"No FCM token found for Gmail user {email}, skipping push.")
         metadata["history_id"] = history_id
         integration.metadata_json = dict(metadata)
         db.commit()
+        logger.info(f"[HISTDBG] (no fcm_token path) saved history_id={history_id} for integration.id={integration.id}")
         return {"status": "ok"}
         
     # Try to renew the watch in the background if it's expiring soon
     await renew_watch_if_needed(db, integration)
-
     messages_to_push = []
     history_success = False
     
     # 1. Attempt to call history.list if we have a last_history_id
     if last_history_id:
+        logger.info(f"[HISTDBG] Entering history.list branch with startHistoryId={last_history_id}")
         history_url = "https://gmail.googleapis.com/gmail/v1/users/me/history"
         try:
             history_response = await call_gmail_api_with_retry(
@@ -474,6 +494,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     "historyTypes": "messageAdded"
                 }
             )
+            # >>> LOG: raw response status + body from history.list
+            logger.info(f"[HISTDBG] history.list status={history_response.status_code} body={history_response.text[:1000]}")
             if history_response.status_code == 200:
                 history_success = True
                 history_data = history_response.json()
@@ -482,6 +504,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                         msg = added.get("message")
                         if msg and msg.get("id") not in [m["id"] for m in messages_to_push]:
                             messages_to_push.append(msg)
+                logger.info(f"[HISTDBG] history.list returned {len(messages_to_push)} new message(s): {[m['id'] for m in messages_to_push]}")
             else:
                 logger.warning(
                     f"History list failed with status {history_response.status_code} "
@@ -489,9 +512,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 )
         except Exception as e:
             logger.error(f"Error fetching Gmail history for user {email}: {e}")
+    else:
+        # >>> LOG: confirms we skipped history.list entirely because last_history_id was falsy
+        logger.info(f"[HISTDBG] Skipping history.list branch entirely — last_history_id was falsy ({last_history_id!r})")
             
     # 2. Fallback: fetch the latest message list only if history list failed or was not available
     if not history_success and not messages_to_push:
+        logger.info(f"[HISTDBG] Entering fallback messages.list branch (history_success={history_success})")
         list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
         try:
             list_response = await call_gmail_api_with_retry(
@@ -504,6 +531,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             if list_response.status_code == 200:
                 list_data = list_response.json()
                 messages_to_push = list_data.get("messages", [])
+                logger.info(f"[HISTDBG] fallback messages.list returned: {[m['id'] for m in messages_to_push]}")
         except Exception as e:
             logger.error(f"Error fetching latest Gmail message list for user {email}: {e}")
             
@@ -512,14 +540,12 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     
     for message in messages_to_push[:5]:
         msg_id = message["id"]
-
         # --- Per-message dedup: skip if this Gmail message was already pushed ---
         msg_redis_key = f"gmail:msg:{msg_id}"
         already_pushed = not redis_client.set(msg_redis_key, "1", nx=True, ex=86400)  # 24h TTL
         if already_pushed:
             logger.info(f"Gmail message {msg_id} already pushed, skipping FCM.")
             continue
-
         msg_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}"
         try:
             msg_response = await call_gmail_api_with_retry(
@@ -559,19 +585,24 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             logger.error(f"Error processing message {msg_id} for push: {e}")
             # Release the Redis key so it can be retried on next webhook
             redis_client.delete(msg_redis_key)
-
     # 4. Save the new historyId only AFTER successful processing
     metadata["history_id"] = history_id
     integration.metadata_json = dict(metadata)
     try:
         db.commit()
         logger.info(f"Saved history_id={history_id} for Gmail user {email} after processing.")
+
+        # >>> LOG: re-fetch from DB in a fresh query to confirm it actually persisted
+        db.refresh(integration)
+        verify = db.query(UserIntegration).filter(UserIntegration.id == integration.id).first()
+        logger.info(
+            f"[HISTDBG] Post-commit verification — integration.id={integration.id} "
+            f"metadata_json now = {verify.metadata_json}"
+        )
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to save final history_id for {email}: {e}")
-
     return {"status": "ok"}
-
 
 @router.get("/messages/{message_id}")
 async def get_message_details(
