@@ -135,11 +135,26 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
     # 2. Event Callback (Actual events like messages)
     if data.get("type") == "event_callback":
         event = data.get("event", {})
-        slack_user_id = event.get("user")
+        sender_slack_user_id = event.get("user")
         event_type = event.get("type")
         event_id = data.get("event_id")
 
-        logger.info(f"Processing Slack event_callback: event_type={event_type}, event_id={event_id}, user={slack_user_id}")
+        # Determine the Slack user ID who authorized/installed this app integration (the notification recipient)
+        authed_slack_user_id = None
+        authorizations = data.get("authorizations", [])
+        if authorizations and isinstance(authorizations, list):
+            authed_slack_user_id = authorizations[0].get("user_id")
+            
+        if not authed_slack_user_id:
+            authed_users = data.get("authed_users", [])
+            if authed_users and isinstance(authed_users, list):
+                authed_slack_user_id = authed_users[0]
+
+        # Fallback to the event sender if no authorizations info is found
+        if not authed_slack_user_id:
+            authed_slack_user_id = sender_slack_user_id
+
+        logger.info(f"Processing Slack event_callback: event_type={event_type}, event_id={event_id}, sender={sender_slack_user_id}, authed_user={authed_slack_user_id}")
         logger.debug(f"Slack event details: {event}")
 
         # --- Idempotency check via Redis ---
@@ -154,33 +169,38 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
             except Exception as re:
                 logger.error(f"Redis error during idempotency check for event {event_id}: {re}. Proceeding anyway.")
         
-        if not slack_user_id:
-            logger.warning(f"No user ID found in Slack event callback. Event keys: {list(event.keys())}")
+        if not authed_slack_user_id:
+            logger.warning(f"No authorized user ID found in Slack event callback payload. Event keys: {list(event.keys())}")
             return {"status": "ok"}
 
-        # Find the connection to get the FCM token
-        logger.info(f"Searching database for UserIntegration: provider='slack', external_id='{slack_user_id}'")
+        # Avoid notifying the user about messages they sent themselves
+        if sender_slack_user_id == authed_slack_user_id:
+            logger.info(f"Slack event was triggered by the integrated user themselves ({sender_slack_user_id}), skipping push notification.")
+            return {"status": "ok"}
+
+        # Find the connection to get the FCM token for the authorized recipient user
+        logger.info(f"Searching database for UserIntegration: provider='slack', external_id='{authed_slack_user_id}'")
         integration = db.query(UserIntegration).filter_by(
             provider="slack",
-            external_id=slack_user_id
+            external_id=authed_slack_user_id
         ).first()
         
         if not integration:
-            logger.warning(f"No active Slack UserIntegration found for external_id (slack_user_id): '{slack_user_id}'")
+            logger.warning(f"No active Slack UserIntegration found for external_id (slack_user_id): '{authed_slack_user_id}'")
             return {"status": "ok"}
             
         if not integration.metadata_json:
-            logger.warning(f"Slack integration found for user {slack_user_id}, but metadata_json is empty/None.")
+            logger.warning(f"Slack integration found for user {authed_slack_user_id}, but metadata_json is empty/None.")
             return {"status": "ok"}
             
         fcm_token = integration.metadata_json.get("fcm_token")
         if not fcm_token:
-            logger.warning(f"Slack integration found for user {slack_user_id}, but no 'fcm_token' found in metadata_json. Keys: {list(integration.metadata_json.keys())}")
+            logger.warning(f"Slack integration found for user {authed_slack_user_id}, but no 'fcm_token' found in metadata_json. Keys: {list(integration.metadata_json.keys())}")
             return {"status": "ok"}
             
         from app.utils.fcm import send_fcm_notification
         import json
-        logger.info(f"Triggering FCM push for Slack user {slack_user_id}. FCM token starts with: '{fcm_token[:8]}...'")
+        logger.info(f"Triggering FCM push for Slack user {authed_slack_user_id} (triggered by sender {sender_slack_user_id}). FCM token starts with: '{fcm_token[:8]}...'")
         
         send_fcm_notification(
             token=fcm_token,
@@ -189,7 +209,7 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
             data={
                 "type": "slack_event",
                 "nodeType": "SLACK_MESSAGE_RECEIVED",
-                "slack_user_id": str(slack_user_id or ""),
+                "slack_user_id": str(sender_slack_user_id or ""),  # The sender's ID who wrote the message
                 "event_type": str(event.get("type") or ""),
                 "text": str(event.get("text") or ""),
                 "channel": str(event.get("channel") or ""),
