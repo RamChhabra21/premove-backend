@@ -76,9 +76,13 @@ def process_job(self, job_id: str):
                 raise
                 
             except BrowserTaskFailedException as e:
-                logger.error(f"Browser task failed for job {job_id}: {e.message}")
+                errors_detail = e.details.get("errors", []) if e.details else []
+                logger.error(
+                    f"Browser task failed for job {job_id}: {e.message} | "
+                    f"Errors: {errors_detail}"
+                )
                 job.status = "FAILED"
-                job.error_message = e.message
+                job.error_message = f"{e.message} | errors: {errors_detail}"
                 job.finished_at = datetime.utcnow()
                 db.commit()
                 
