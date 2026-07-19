@@ -44,7 +44,8 @@ class WebExecutor():
             agent = Agent(
                 task=task_prompt,
                 llm=llm,
-                browser=browser
+                browser=browser,
+                use_vision=False  # gpt-oss-20b is text-only; disable screenshot content in messages
             )
 
             history = await agent.run()
