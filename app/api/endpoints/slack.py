@@ -172,12 +172,6 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
         if not authed_slack_user_id:
             logger.warning(f"No authorized user ID found in Slack event callback payload. Event keys: {list(event.keys())}")
             return {"status": "ok"}
-
-        # Avoid notifying the user about messages they sent themselves
-        if sender_slack_user_id == authed_slack_user_id:
-            logger.info(f"Slack event was triggered by the integrated user themselves ({sender_slack_user_id}), skipping push notification.")
-            return {"status": "ok"}
-
         # Find the connection to get the FCM token for the authorized recipient user
         logger.info(f"Searching database for UserIntegration: provider='slack', external_id='{authed_slack_user_id}'")
         integration = db.query(UserIntegration).filter_by(
