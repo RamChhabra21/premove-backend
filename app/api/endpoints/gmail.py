@@ -119,15 +119,21 @@ async def gmail_exchange(
         provider="gmail"
     ).first()
 
+    existing_creds = integration.credentials or {} if integration else {}
+    gmail_credentials = {
+        "access_token": access_token,
+    }
+    if refresh_token:
+        gmail_credentials["refresh_token"] = refresh_token
+    elif "refresh_token" in existing_creds:
+        gmail_credentials["refresh_token"] = existing_creds["refresh_token"]
+
     if not integration:
         integration = UserIntegration(
             user_id=user_id,
             provider="gmail",
             external_id=google_user_id,
-            credentials={
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-            },
+            credentials=gmail_credentials,
             metadata_json={
                 "email": google_email,
                 "fcm_token": body.fcm_token,
@@ -136,10 +142,7 @@ async def gmail_exchange(
         db.add(integration)
     else:
         integration.external_id = google_user_id
-        integration.credentials = {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-        }
+        integration.credentials = gmail_credentials
         integration.metadata_json = {
             "email": google_email,
             "fcm_token": body.fcm_token,
