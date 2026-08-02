@@ -449,4 +449,4 @@ async def list_slack_users(
 ):
     """List all users/members of the connected Slack workspace."""
     data = await call_slack_api("users.list", current_user.id, db, params={"limit": limit})
-    return data.get("members", [])
+    return data.get("members", [])

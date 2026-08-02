@@ -10,6 +10,7 @@ from app.core.logging_config import logger
 router = APIRouter()
 
 
+@router.get("")
 @router.get("/")
 async def list_all_user_integrations(
     db: Session = Depends(get_db),
