@@ -341,39 +341,49 @@ async def get_slack_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_db_user)
 ):
-    """
-    Checks if the current user has an active, valid Slack integration.
-    Goes through backend auto-refresh if token is expiring/expired.
-    """
+    """Fast DB-driven status check for Slack connection."""
     integration = db.query(UserIntegration).filter_by(
         user_id=current_user.id,
         provider="slack"
     ).first()
 
-    if not integration or not integration.credentials or "access_token" not in integration.credentials:
-        return {
-            "connected": False,
-            "status": "not_connected"
-        }
+    has_credentials = bool(
+        integration and 
+        integration.credentials and 
+        ("access_token" in integration.credentials or "refresh_token" in integration.credentials)
+    )
+
+    return {
+        "connected": has_credentials,
+        "status": "connected" if has_credentials else "not_connected",
+        "slack_user_id": integration.external_id if (integration and has_credentials) else None
+    }
+
+
+@router.delete("/disconnect")
+@router.delete("/")
+async def disconnect_slack(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user)
+):
+    """Disconnects and removes Slack integration for the current user."""
+    integration = db.query(UserIntegration).filter_by(
+        user_id=current_user.id,
+        provider="slack"
+    ).first()
+
+    if not integration:
+        raise HTTPException(status_code=404, detail="Slack integration is not connected.")
 
     try:
-        auth_data = await call_slack_api("auth.test", current_user.id, db)
-        return {
-            "connected": True,
-            "status": "active",
-            "slack_user_id": auth_data.get("user_id"),
-            "slack_user_name": auth_data.get("user"),
-            "team_name": auth_data.get("team"),
-            "team_id": auth_data.get("team_id"),
-            "url": auth_data.get("url")
-        }
-    except HTTPException as e:
-        if e.status_code == 401:
-            return {
-                "connected": False,
-                "status": "expired_or_revoked"
-            }
-        raise
+        db.delete(integration)
+        db.commit()
+        logger.info(f"User {current_user.id} disconnected Slack integration.")
+        return {"status": "ok", "message": "Successfully disconnected Slack."}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to disconnect Slack for user {current_user.id}: {e}")
+        raise HTTPException(status_code=500, detail="Database error during disconnect")
 
 
 @router.get("/me")
