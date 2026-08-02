@@ -243,9 +243,13 @@ async def refresh_slack_token(integration: UserIntegration, db: Session) -> str:
         )
 
     authed_user = data.get("authed_user", {})
-    new_access_token = authed_user.get("access_token")
-    new_refresh_token = authed_user.get("refresh_token")
-    expires_in = authed_user.get("expires_in")
+    new_access_token = data.get("access_token") or authed_user.get("access_token")
+    new_refresh_token = data.get("refresh_token") or authed_user.get("refresh_token")
+    expires_in = data.get("expires_in") or authed_user.get("expires_in")
+
+    if not new_access_token:
+        logger.error(f"Slack token refresh response missing access_token: {data}")
+        raise HTTPException(status_code=401, detail="Slack token refresh returned empty token.")
 
     new_credentials = dict(credentials)
     new_credentials["access_token"] = new_access_token
