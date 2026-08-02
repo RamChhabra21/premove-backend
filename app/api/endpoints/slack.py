@@ -336,6 +336,46 @@ async def call_slack_api(endpoint: str, user_id, db: Session, params: Optional[d
 # Endpoints
 # ------------------------------------------------------------------
 
+@router.get("/status")
+async def get_slack_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_db_user)
+):
+    """
+    Checks if the current user has an active, valid Slack integration.
+    Goes through backend auto-refresh if token is expiring/expired.
+    """
+    integration = db.query(UserIntegration).filter_by(
+        user_id=current_user.id,
+        provider="slack"
+    ).first()
+
+    if not integration or not integration.credentials or "access_token" not in integration.credentials:
+        return {
+            "connected": False,
+            "status": "not_connected"
+        }
+
+    try:
+        auth_data = await call_slack_api("auth.test", current_user.id, db)
+        return {
+            "connected": True,
+            "status": "active",
+            "slack_user_id": auth_data.get("user_id"),
+            "slack_user_name": auth_data.get("user"),
+            "team_name": auth_data.get("team"),
+            "team_id": auth_data.get("team_id"),
+            "url": auth_data.get("url")
+        }
+    except HTTPException as e:
+        if e.status_code == 401:
+            return {
+                "connected": False,
+                "status": "expired_or_revoked"
+            }
+        raise
+
+
 @router.get("/me")
 async def get_slack_me(
     db: Session = Depends(get_db),
