@@ -31,7 +31,7 @@ def send_fcm_notification(token: str, title: str, body: str, data: dict = None):
         )
 
         response = messaging.send(message)
-        logger.info(f"Successfully sent FCM message: {response}")
+        logger.info(f"Successfully sent FCM message: {response} using token: {token}")
         return response
 
     except Exception as e:
