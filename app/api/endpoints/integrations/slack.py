@@ -149,12 +149,13 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
                 authed_slack_user_id = authed_users[0]
 
         if not authed_slack_user_id:
-            authed_slack_user_id = sender_slack_user_id
-
+            logger.warning(f"No authorization info in event {event_id}, dropping.")
+            return {"status": "ok"}
+        
         logger.info(f"Processing Slack event_callback: event_type={event_type}, event_id={event_id}, authed_user={authed_slack_user_id}")
 
-        # Idempotency check via Redis
-        if event_id:
+        # # Idempotency check via Redis
+        # if event_id:
             redis_key = f"slack:processed:{event_id}"
             try:
                 already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
