@@ -120,12 +120,10 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
     """Handles Slack Event Subscriptions."""
     try:
         data = await request.json()
-        logger.info(f"Received Slack webhook. Event type: {data.get('type')}, event_id: {data.get('event_id')}")
+        logger.info(f"Received Slack webhook. Event type: {data.get('type')}, event_id: {data.get('event_id')}, data: {data}")
     except Exception as e:
         logger.error(f"Failed to parse Slack event JSON: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
-    
-    print("Slack event data : ", data)
 
     # 1. URL Verification
     if data.get("type") == "url_verification":
