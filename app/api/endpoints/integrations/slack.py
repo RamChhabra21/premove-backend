@@ -156,14 +156,14 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
 
         # # Idempotency check via Redis
         # if event_id:
-            redis_key = f"slack:processed:{event_id}"
-            try:
-                already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
-                if already_processed:
-                    logger.info(f"Duplicate Slack event {event_id}, skipping.")
-                    return {"status": "ok"}
-            except Exception as re:
-                logger.error(f"Redis error during idempotency check for event {event_id}: {re}")
+            # redis_key = f"slack:processed:{event_id}"
+            # try:
+            #     already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
+            #     if already_processed:
+            #         logger.info(f"Duplicate Slack event {event_id}, skipping.")
+            #         return {"status": "ok"}
+            # except Exception as re:
+            #     logger.error(f"Redis error during idempotency check for event {event_id}: {re}")
 
         if not authed_slack_user_id:
             return {"status": "ok"}
