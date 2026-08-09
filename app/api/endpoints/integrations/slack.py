@@ -128,77 +128,131 @@ async def slack_events(request: Request, db: Session = Depends(get_db)):
     # 1. URL Verification
     if data.get("type") == "url_verification":
         return {"challenge": data.get("challenge")}
-    
+
     # 2. Event Callback
     if data.get("type") == "event_callback":
         event = data.get("event", {})
         sender_slack_user_id = event.get("user")
         event_type = event.get("type")
         event_id = data.get("event_id")
+        channel_id = event.get("channel")
+        channel_type = event.get("channel_type")
 
-        authed_slack_user_id = None
         authorizations = data.get("authorizations", [])
-        if authorizations and isinstance(authorizations, list):
-            authed_slack_user_id = authorizations[0].get("user_id")
-            
-        if not authed_slack_user_id:
-            authed_users = data.get("authed_users", [])
-            if authed_users and isinstance(authed_users, list):
-                authed_slack_user_id = authed_users[0]
 
-        if not authed_slack_user_id:
-            logger.warning(f"No authorization info in event {event_id}, dropping.")
-            return {"status": "ok"}
-        
-        logger.info(f"Processing Slack event_callback: event_type={event_type}, event_id={event_id}, authed_user={authed_slack_user_id}")
-
-        # # Idempotency check via Redis
-        # if event_id:
-            # redis_key = f"slack:processed:{event_id}"
-            # try:
-            #     already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
-            #     if already_processed:
-            #         logger.info(f"Duplicate Slack event {event_id}, skipping.")
-            #         return {"status": "ok"}
-            # except Exception as re:
-            #     logger.error(f"Redis error during idempotency check for event {event_id}: {re}")
-
-        if not authed_slack_user_id:
-            return {"status": "ok"}
-
-        integration = db.query(UserIntegration).filter_by(
-            provider="slack",
-            external_id=authed_slack_user_id
-        ).first()
-        
-        if not integration or not integration.metadata_json:
-            return {"status": "ok"}
-            
-        fcm_token = integration.metadata_json.get("fcm_token")
-        if not fcm_token:
-            return {"status": "ok"}
-            
-        from app.utils.fcm import send_fcm_notification
-        send_fcm_notification(
-            token=fcm_token,
-            title="Slack Activity",
-            body=event.get("text", "New Slack event received!"),
-            data={
-                "type": "slack_event",
-                "nodeType": "SLACK_MESSAGE_RECEIVED",
-                "slack_user_id": str(sender_slack_user_id or ""),
-                "event_type": str(event.get("type") or ""),
-                "text": str(event.get("text") or ""),
-                "channel": str(event.get("channel") or ""),
-                "ts": str(event.get("ts") or ""),
-                "channel_type": str(event.get("channel_type") or ""),
-                "client_msg_id": str(event.get("client_msg_id") or ""),
-                "team_id": str(data.get("team_id") or ""),
-                "event_id": str(data.get("event_id") or ""),
-                "event_time": str(data.get("event_time") or ""),
-                "event_json": json.dumps(event)
-            }
+        logger.info(
+            f"Processing Slack event_callback: event_type={event_type}, event_id={event_id}, "
+            f"sender={sender_slack_user_id}, channel={channel_id}, channel_type={channel_type}"
         )
+
+        # Idempotency check via Redis (re-enabled — protects against Slack retries of the
+        # same delivery; does not affect legitimate distinct deliveries)
+        if event_id:
+            redis_key = f"slack:processed:{event_id}"
+            try:
+                already_processed = not redis_client.set(redis_key, "1", nx=True, ex=1800)
+                if already_processed:
+                    logger.info(f"Duplicate Slack event {event_id}, skipping.")
+                    return {"status": "ok"}
+            except Exception as re:
+                logger.error(f"Redis error during idempotency check for event {event_id}: {re}")
+
+        if not channel_id or not sender_slack_user_id:
+            return {"status": "ok"}
+
+        # We need SOME valid, connected internal user to make the Slack API call with.
+        # Prefer the sender's own integration; fall back to any authorized installer
+        # that we have on file (covers cases where the sender isn't the connected party).
+        caller_internal_user_id = None
+
+        sender_integration = db.query(UserIntegration).filter_by(
+            provider="slack",
+            external_id=sender_slack_user_id
+        ).first()
+
+        if sender_integration:
+            caller_internal_user_id = sender_integration.user_id
+        else:
+            for auth in authorizations:
+                auth_slack_user_id = auth.get("user_id")
+                if not auth_slack_user_id or auth.get("is_bot"):
+                    continue
+                auth_integration = db.query(UserIntegration).filter_by(
+                    provider="slack",
+                    external_id=auth_slack_user_id
+                ).first()
+                if auth_integration:
+                    caller_internal_user_id = auth_integration.user_id
+                    break
+
+        if caller_internal_user_id is None:
+            logger.warning(f"No connected integration available to query Slack API for event {event_id}, dropping.")
+            return {"status": "ok"}
+
+        # Resolve the actual recipient(s) via real channel membership instead of
+        # relying on `authorizations`, which only reliably reflects the sender for
+        # message.im events. This generalizes to group DMs (mpim) and channels too —
+        # members minus sender = recipients.
+        try:
+            members_data = await call_slack_api(
+                "conversations.members",
+                caller_internal_user_id,
+                db,
+                params={"channel": channel_id}
+            )
+        except HTTPException as e:
+            logger.error(f"Failed to fetch conversations.members for channel {channel_id}, event {event_id}: {e.detail}")
+            return {"status": "ok"}
+
+        member_ids = members_data.get("members", [])
+        recipient_slack_ids = [uid for uid in member_ids if uid != sender_slack_user_id]
+
+        if not recipient_slack_ids:
+            logger.info(f"No recipients other than sender for event {event_id}, nothing to notify.")
+            return {"status": "ok"}
+
+        from app.utils.fcm import send_fcm_notification
+
+        for recipient_slack_id in recipient_slack_ids:
+            recipient_integration = db.query(UserIntegration).filter_by(
+                provider="slack",
+                external_id=recipient_slack_id
+            ).first()
+
+            if not recipient_integration or not recipient_integration.metadata_json:
+                continue
+
+            fcm_token = recipient_integration.metadata_json.get("fcm_token")
+            if not fcm_token:
+                continue
+
+            logger.info(
+                f"Notifying internal_user={recipient_integration.user_id} "
+                f"(slack_user={recipient_slack_id}) about message from {sender_slack_user_id} "
+                f"in channel {channel_id}"
+            )
+
+            send_fcm_notification(
+                token=fcm_token,
+                title="Slack Activity",
+                body=event.get("text", "New Slack event received!"),
+                data={
+                    "type": "slack_event",
+                    "nodeType": "SLACK_MESSAGE_RECEIVED",
+                    "slack_user_id": str(sender_slack_user_id or ""),
+                    "event_type": str(event.get("type") or ""),
+                    "text": str(event.get("text") or ""),
+                    "channel": str(channel_id or ""),
+                    "ts": str(event.get("ts") or ""),
+                    "channel_type": str(channel_type or ""),
+                    "client_msg_id": str(event.get("client_msg_id") or ""),
+                    "team_id": str(data.get("team_id") or ""),
+                    "event_id": str(event_id or ""),
+                    "event_time": str(data.get("event_time") or ""),
+                    "event_json": json.dumps(event)
+                }
+            )
+
     return {"status": "ok"}
 
 
