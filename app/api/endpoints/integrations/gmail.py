@@ -545,25 +545,30 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 msg_detail = msg_response.json()
                 parsed = parse_gmail_metadata(msg_detail)
                 
-                logger.info(f"Triggering FCM push for Gmail user {email}, message {msg_id}")
-                send_fcm_notification(
-                    token=fcm_token,
-                    title="Gmail Activity",
-                    body=f"{parsed['sender_name']}: {parsed['subject']}",
-                    data={
-                        "type": "gmail_event",
-                        "nodeType": "GMAIL_MESSAGE_RECEIVED",
-                        "email": email,
-                        "message_id": parsed["message_id"],
-                        "thread_id": parsed["thread_id"],
-                        "sender": parsed["sender"],
-                        "sender_name": parsed["sender_name"],
-                        "subject": parsed["subject"],
-                        "snippet": parsed["snippet"],
-                        "labels": json.dumps(parsed["labels"]),
-                        "history_id": str(history_id)
-                    }
-                )
+                labels = parsed.get("labels", [])
+                # Only trigger FCM push for received messages in INBOX (ignore DRAFT and SENT messages)
+                if "INBOX" not in labels or "DRAFT" in labels:
+                    logger.info(f"Skipping FCM push for non-inbox/draft message {msg_id} (labels: {labels})")
+                else:
+                    logger.info(f"Triggering FCM push for Gmail user {email}, message {msg_id}")
+                    send_fcm_notification(
+                        token=fcm_token,
+                        title="Gmail Activity",
+                        body=f"{parsed['sender_name']}: {parsed['subject']}",
+                        data={
+                            "type": "gmail_event",
+                            "nodeType": "GMAIL_MESSAGE_RECEIVED",
+                            "email": email,
+                            "message_id": parsed["message_id"],
+                            "thread_id": parsed["thread_id"],
+                            "sender": parsed["sender"],
+                            "sender_name": parsed["sender_name"],
+                            "subject": parsed["subject"],
+                            "snippet": parsed["snippet"],
+                            "labels": json.dumps(parsed["labels"]),
+                            "history_id": str(history_id)
+                        }
+                    )
             else:
                 # Release the Redis key so it can be retried on next webhook
                 redis_client.delete(msg_redis_key)
